@@ -495,3 +495,92 @@
 .upload-area p {
   font-size: 0.85rem;
 }
+
+/* Modal Sizes */
+.modal.modal-large {
+  max-width: 800px;
+}
+
+.modal.modal-small {
+  max-width: 400px;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* Info Sections (Company Detail) */
+.info-section {
+  margin-bottom: 1.5rem;
+}
+
+.info-section:last-child {
+  margin-bottom: 0;
+}
+
+.info-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.info-row {
+  display: flex;
+  padding: 0.375rem 0;
+  font-size: 0.85rem;
+}
+
+.info-label {
+  width: 140px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.info-value {
+  color: var(--text-primary);
+  flex: 1;
+  word-break: break-word;
+}
+
+.info-value.link {
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.info-value.link:hover {
+  text-decoration: underline;
+}
+
+/* Filter Panel */
+.filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+}
+
+.filter-panel select {
+  width: auto;
+  min-width: 180px;
+}
+
+/* Checkbox styling */
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
