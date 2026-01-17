@@ -4,6 +4,63 @@ import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspe
 import './Pages.css';
 import './DealPipeline.css';
 
+// Get domain from website URL for Clearbit logo
+function getDomain(website) {
+  if (!website) return null;
+  try {
+    let domain = website.replace(/https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    return domain;
+  } catch {
+    return null;
+  }
+}
+
+// Company Logo component with fallback
+function CompanyLogo({ website, name, size = 32 }) {
+  const [hasError, setHasError] = useState(false);
+  const domain = getDomain(website);
+
+  if (!domain || hasError) {
+    // Fallback: show first letter of company name
+    return (
+      <div
+        className="company-logo-fallback"
+        style={{
+          width: size,
+          height: size,
+          minWidth: size,
+          borderRadius: '6px',
+          backgroundColor: 'var(--bg-tertiary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: size * 0.45,
+          fontWeight: 600,
+          color: 'var(--text-secondary)'
+        }}
+      >
+        {name?.charAt(0)?.toUpperCase() || '?'}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={`https://logo.clearbit.com/${domain}`}
+      alt={`${name} logo`}
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: '6px',
+        objectFit: 'contain',
+        backgroundColor: 'white'
+      }}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 // Parse CSV text into array of objects
 function parseCSV(text) {
   const lines = text.split('\n').filter(line => line.trim());
@@ -113,13 +170,16 @@ function CompanyModal({ company, onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-large" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div>
-            <h2>{company.organizationName}</h2>
-            {company.prospectStatus && (
-              <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                {company.prospectStatus}
-              </span>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <CompanyLogo website={company.website} name={company.organizationName} size={48} />
+            <div>
+              <h2>{company.organizationName}</h2>
+              {company.prospectStatus && (
+                <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
+                  {company.prospectStatus}
+                </span>
+              )}
+            </div>
           </div>
           <button className="modal-close" onClick={onClose}>
             <X size={20} />
@@ -501,12 +561,17 @@ function MasterList() {
                         />
                       </td>
                       <td className="primary-cell">
-                        {company.organizationName}
-                        {company.website && (
-                          <span className="text-muted" style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-                            {company.website.replace(/https?:\/\//, '').replace(/\/$/, '')}
-                          </span>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <CompanyLogo website={company.website} name={company.organizationName} size={32} />
+                          <div>
+                            <div>{company.organizationName}</div>
+                            {company.website && (
+                              <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                {company.website.replace(/https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td>
                         {company.prospectStatus && (
