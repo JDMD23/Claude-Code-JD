@@ -233,6 +233,7 @@ export function saveDossierToCompany(companyId, dossier) {
     // NYC Intel
     nycAddress: dossier.nycIntel?.address || dossier.company?.nycAddress || companies[index].nycAddress,
     nycOfficeConfirmed: dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || companies[index].nycOfficeConfirmed,
+    nycHeadcount: dossier.nycIntel?.nyc_headcount || companies[index].nycHeadcount,
     // Hiring
     hiringStatus: dossier.hiring?.status || companies[index].hiringStatus,
     totalJobs: dossier.hiring?.totalJobs || companies[index].totalJobs,

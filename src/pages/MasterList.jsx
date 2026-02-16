@@ -289,6 +289,8 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
         <span className="dossier-nyc-badge">
           {company.nycOfficeConfirmed === 'Yes' ? (
             <span className="nyc-confirmed"><MapPin size={12} strokeWidth={1.5} /> NYC</span>
+          ) : company.nycOfficeConfirmed === 'Planned' ? (
+            <span className="nyc-planned"><MapPin size={12} strokeWidth={1.5} /> NYC Planned</span>
           ) : company.nycOfficeConfirmed === 'No' ? (
             <span className="nyc-unconfirmed">No NYC</span>
           ) : null}
@@ -487,7 +489,17 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
                       {news.title}
                     </a>
                     {news.snippet && <p className="news-snippet">{news.snippet}</p>}
-                    {news.source && <span className="news-source">{news.source}</span>}
+                    <div className="news-meta">
+                      {news.newsType && news.newsType !== 'Company News' && (
+                        <span className={`news-type-badge ${news.newsType.toLowerCase().replace(/[\s/&]+/g, '-')}`}>
+                          {news.newsType}
+                        </span>
+                      )}
+                      {news.source && <span className="news-source">{news.source}</span>}
+                      {news.publishedDate && news.publishedDate !== 'Unknown' && (
+                        <span className="news-date">{news.publishedDate}</span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -724,7 +736,14 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySav
               </div>
               <div className="dossier-item">
                 <span className="label">Confirmed</span>
-                <span className="value">{dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || '-'}</span>
+                <span className={`value ${dossier.nycIntel?.confirmed === 'Yes' ? 'highlight' : dossier.nycIntel?.confirmed === 'Planned' ? 'text-warning' : ''}`}>
+                  {dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || '-'}
+                  {dossier.nycIntel?.confirmed === 'Planned' && ' (planning NYC office)'}
+                </span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">NYC Headcount</span>
+                <span className="value">{dossier.nycIntel?.nyc_headcount || '-'}</span>
               </div>
               {dossier.nycIntel?.careersUrl && (
                 <div className="dossier-item">
@@ -818,16 +837,28 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySav
 
           {/* Recent News */}
           <div className="dossier-section">
-            <h4><Newspaper size={16} strokeWidth={1.5} /> Recent News</h4>
+            <h4><Newspaper size={16} strokeWidth={1.5} /> Recent News & Growth Signals</h4>
             {dossier.recentNews && dossier.recentNews.length > 0 ? (
               <div className="news-list">
                 {dossier.recentNews.map((article, idx) => (
                   <div key={idx} className="news-item">
-                    <a href={article.url} target="_blank" rel="noopener noreferrer" className="news-title">
-                      {article.title} <ExternalLink size={12} />
-                    </a>
+                    <div className="news-header">
+                      <a href={article.url} target="_blank" rel="noopener noreferrer" className="news-title">
+                        {article.title} <ExternalLink size={12} />
+                      </a>
+                    </div>
                     <p className="news-snippet">{article.snippet}</p>
-                    <span className="news-source">{article.source}</span>
+                    <div className="news-meta">
+                      {article.newsType && article.newsType !== 'Company News' && (
+                        <span className={`news-type-badge ${article.newsType.toLowerCase().replace(/[\s/&]+/g, '-')}`}>
+                          {article.newsType}
+                        </span>
+                      )}
+                      <span className="news-source">{article.source}</span>
+                      {article.publishedDate && article.publishedDate !== 'Unknown' && (
+                        <span className="news-date">{article.publishedDate}</span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1342,6 +1373,7 @@ function MasterList() {
                         </td>
                         <td>
                           {company.nycOfficeConfirmed === 'Yes' ? '✅' :
+                           company.nycOfficeConfirmed === 'Planned' ? '📋' :
                            company.nycOfficeConfirmed === 'No' ? '❌' : '❓'}
                         </td>
                       </tr>

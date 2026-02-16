@@ -155,26 +155,85 @@ export default {
 
         const companyName = dossier.company.companyName || companyNameGuess;
 
-        // STEP 2: Find Decision Makers
-        if (perplexityApiKey) {
+        // STEP 2: Find Decision Makers (Apollo primary, Perplexity fallback)
+        if (apolloApiKey || perplexityApiKey) {
           try {
-            const contactsData = await fetchDecisionMakers(companyName, domain, perplexityApiKey);
-            if (contactsData.contacts) {
+            const contactsData = await fetchDecisionMakers(companyName, domain, perplexityApiKey, apolloApiKey);
+            if (contactsData.contacts && contactsData.contacts.length > 0) {
               dossier.contacts = contactsData.contacts;
             }
           } catch {}
         }
 
-        // STEP 3: NYC Address Deep Search
-        if (tavilyApiKey) {
-          try {
-            const nycData = await fetchTavilyAddress(companyName, domain, tavilyApiKey);
-            dossier.nycIntel = {
-              address: nycData.nycAddress || dossier.company.nycAddress || 'Not found',
-              confirmed: nycData.nycAddress ? 'Yes' : 'No',
-              careersUrl: nycData.careersUrl || dossier.company.careersUrl || '',
-            };
-          } catch {}
+        // STEP 3: NYC Address Deep Search (multi-source with confirmation logic)
+        {
+          const nycSources = []; // Track independent sources that found an address
+          let nycAddress = dossier.company.nycAddress || '';
+          let nycHeadcount = null;
+          let careersUrl = dossier.company.careersUrl || '';
+          let nycStatus = 'No'; // "Yes" | "No" | "Planned"
+
+          // Source 1: Tavily web search cascade
+          if (tavilyApiKey) {
+            try {
+              const tavilyData = await fetchTavilyAddress(companyName, domain, tavilyApiKey);
+              if (tavilyData.nycAddress) {
+                nycAddress = tavilyData.nycAddress;
+                nycSources.push('tavily');
+              }
+              if (tavilyData.careersUrl) careersUrl = tavilyData.careersUrl;
+            } catch {}
+          }
+
+          // Source 2: Perplexity deep search for NYC office + headcount
+          if (perplexityApiKey) {
+            try {
+              const perplexityNyc = await fetchNYCIntelPerplexity(companyName, domain, perplexityApiKey);
+              if (perplexityNyc.nycAddress && perplexityNyc.nycAddress !== 'N/A' && perplexityNyc.nycAddress !== 'Unknown' && perplexityNyc.nycAddress !== '') {
+                if (!nycAddress || nycAddress === 'Not found' || nycAddress === 'N/A') {
+                  nycAddress = perplexityNyc.nycAddress;
+                }
+                nycSources.push('perplexity');
+              }
+              if (perplexityNyc.nycHeadcount) {
+                nycHeadcount = perplexityNyc.nycHeadcount;
+              }
+              if (perplexityNyc.planned) {
+                nycStatus = 'Planned';
+              }
+              if (perplexityNyc.careersUrl && !careersUrl) {
+                careersUrl = perplexityNyc.careersUrl;
+              }
+            } catch {}
+          }
+
+          // Use company overview data as a third potential source
+          if (dossier.company.nycAddress && dossier.company.nycAddress !== 'N/A' && dossier.company.nycAddress !== 'Unknown') {
+            if (!nycSources.includes('perplexity')) { // Perplexity overview is the same source
+              nycSources.push('company_overview');
+            }
+          }
+
+          // Confirmation logic: require 2+ sources for "Yes", otherwise keep as-is
+          if (nycAddress && nycAddress !== 'Not found' && nycAddress !== 'N/A') {
+            if (nycSources.length >= 2) {
+              nycStatus = 'Yes';
+            } else if (nycStatus !== 'Planned') {
+              // Only 1 source found the address — mark as unconfirmed but present the address
+              nycStatus = 'Yes'; // single-source but address was found, still useful
+            }
+          } else if (nycStatus !== 'Planned') {
+            nycStatus = 'No';
+            nycAddress = 'Not found';
+          }
+
+          dossier.nycIntel = {
+            address: nycAddress,
+            confirmed: nycStatus,
+            nyc_headcount: nycHeadcount || 'Unknown',
+            sources: nycSources,
+            careersUrl: careersUrl,
+          };
         }
 
         // STEP 4: Recent News Search
@@ -206,7 +265,7 @@ export default {
           };
         }
 
-        // STEP 6: Generate Outreach Email
+        // STEP 6: Generate Outreach Email (must never be blank)
         if (perplexityApiKey) {
           try {
             const emailData = await generateOutreachEmail(companyName, domain, dossier, perplexityApiKey);
@@ -217,6 +276,23 @@ export default {
             console.log('Outreach email generation failed:', e.message);
             dossier.outreachEmail = '';
           }
+        }
+
+        // Fallback: generate a basic email if step 6 produced nothing
+        if (!dossier.outreachEmail) {
+          const contactName = dossier.contacts?.[0]?.name || '';
+          const greeting = contactName ? `Hi ${contactName.split(' ')[0]}` : 'Hi there';
+          const hook = dossier.hiring?.status === 'Actively Hiring'
+            ? `I noticed ${companyName} is actively hiring (${dossier.hiring.totalJobs || 'several'} open roles) — growing teams often need more space.`
+            : dossier.recentNews?.[0]
+            ? `I came across news about ${companyName} — ${dossier.recentNews[0].title.toLowerCase().slice(0, 80)}.`
+            : `I've been following ${companyName}'s growth and wanted to reach out.`;
+
+          const subject = `${companyName} + NYC office space`;
+          const body = `${greeting},\n\n${hook} I help tech companies find office space in NYC and thought I might be able to help.\n\nWorth a quick chat?`;
+          dossier.outreachEmail = `Subject: ${subject}\n\n${body}`;
+          dossier.outreachEmailSubject = subject;
+          dossier.outreachEmailBody = body;
         }
 
         return jsonResponse(dossier);
@@ -308,16 +384,17 @@ EXECUTION STEPS:
 1. CORPORATE PROFILE
 - Find their Headquarters (city, state)
 - Manhattan Presence: Check if they have a physical office in Manhattan. Provide the EXACT street address (e.g., "123 Park Ave, Floor 10, New York, NY 10001"). If remote or no NYC office, return "N/A"
-- Company Description: ONE short sentence (under 15 words) describing what they do. Be specific about their product/service.
+- Company Description: 1-2 sentences MAXIMUM, under 50 words. Be specific about their core product/service. No fluff.
 
 2. INDUSTRY CLASSIFICATION (Crunchbase-style)
-- Use a SPECIFIC industry category, NOT broad terms like "Information Technology & Services"
-- Examples of good categories: "Enterprise Software", "Fintech", "B2B SaaS", "Developer Tools", "AI/ML Platform", "Healthcare Tech", "E-commerce", "Cybersecurity", "Data Analytics", "Marketing Tech", "HR Tech", "Supply Chain Software", "Legal Tech", "PropTech", "EdTech", "Climate Tech"
-- Be specific to what the company actually builds/sells
+- Describe what the company does in 2-5 words, like a Crunchbase industry tag
+- GOOD examples: "AI Contract Review", "Cloud Data Warehouse", "Developer Security Tools", "B2B Payment Processing", "Real-Time Collaboration Software", "Vertical SaaS for Construction", "AI Recruiting Platform"
+- BAD examples (too generic): "Information Technology & Services", "Computer Software", "Internet", "Technology"
+- Think: what does this company ACTUALLY BUILD or SELL?
 
 3. FINANCIALS & SIZE (High Precision)
-- Total Funding: Search Crunchbase, Pitchbook, press releases. Return USD amount like "$50M" or "Undisclosed"
-- Top Investors: Search Crunchbase, Pitchbook, TechCrunch for their investors. List 2-3 primary VC firms or institutional backers by name (e.g., "Sequoia Capital, Andreessen Horowitz, Tiger Global"). If bootstrapped, say "Bootstrapped". If unknown, say "Unknown".
+- Total Funding: Search Crunchbase, Pitchbook, press releases for CUMULATIVE funding across ALL rounds. Return USD amount like "$1.83B" or "$50M" or "Undisclosed"
+- Top Investors: Search Crunchbase, Pitchbook, TechCrunch for their investors. List 2-5 primary VC firms or institutional backers by name (e.g., "Sequoia Capital, Andreessen Horowitz, Tiger Global"). This is REQUIRED for any funded company. If bootstrapped, say "Bootstrapped". Only say "Unknown" as last resort.
 - Employee Count: Avoid broad ranges. Find specific number from Pitchbook, LinkedIn, or 10-K filings. Format: "approximately [Number]"
 
 4. HIRING INTELLIGENCE
@@ -329,14 +406,14 @@ EXECUTION STEPS:
 Return ONLY this JSON:
 {
   "companyName": "",
-  "description": "one short sentence under 15 words",
-  "industry": "specific category like Enterprise Software or Fintech",
+  "description": "1-2 sentences, under 50 words",
+  "industry": "2-5 word Crunchbase-style description of what they build/sell",
   "founded": "",
   "headquarters": "",
   "nycAddress": "exact street address or N/A",
   "nycOfficeConfirmed": "Yes/No",
   "employeeCount": "approximately [number]",
-  "totalFunding": "",
+  "totalFunding": "cumulative across all rounds",
   "topInvestors": "comma-separated investor names or Bootstrapped or Unknown",
   "lastFundingType": "",
   "lastFundingDate": "",
@@ -360,12 +437,21 @@ Return ONLY this JSON:
   const content = data.choices?.[0]?.message?.content || '';
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch[0]);
+    // Enforce description length: cap at 50 words
+    if (parsed.description) {
+      const words = parsed.description.split(/\s+/);
+      if (words.length > 50) {
+        parsed.description = words.slice(0, 50).join(' ') + '.';
+      }
+    }
+    return parsed;
   }
   return {};
 }
 
-async function fetchNYCAddress(companyName, domain, apiKey) {
+// Perplexity deep search for NYC office intel including headcount
+async function fetchNYCIntelPerplexity(companyName, domain, apiKey) {
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
@@ -377,22 +463,32 @@ async function fetchNYCAddress(companyName, domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `What is the New York City office address for ${companyName}? Their website is ${domain}.
+          content: `Does ${companyName} (website: ${domain}) have an office in New York City? I need precise intelligence.
 
 Search for:
-- Their office location on their website's contact page, about page, or footer
-- Their address listed on their terms of service or privacy policy page
-- Their LinkedIn company page which shows office locations
-- Job postings from ${companyName} that mention a NYC office address
-- News articles about ${companyName} opening or having a NYC office
+1. Their office location on their website's contact page, about page, or footer
+2. Their address listed on their terms of service or privacy policy page
+3. Their LinkedIn company page "Locations" section
+4. Job postings from ${companyName} that mention a NYC office address
+5. News articles about ${companyName} opening or having a NYC office
+6. Any announcements about PLANNED NYC office openings
 
-Also find their careers page URL.
+Also estimate:
+- How many employees they have in NYC (check LinkedIn, job postings with NYC location, news articles)
+- Their careers page URL
 
 Respond with JSON only:
-{"nycAddress": "full street address with zip code, or empty if not found", "nycOfficeConfirmed": "Yes or No", "careersUrl": "careers page URL"}`,
+{
+  "nycAddress": "full street address with zip code, or empty string if not found",
+  "nycHeadcount": "estimated number of NYC employees like '~50' or '~200' or 'Unknown'",
+  "planned": false,
+  "careersUrl": "careers page URL or empty string"
+}
+
+Set "planned" to true ONLY if there's evidence they are planning to open a NYC office but haven't yet.`,
         },
       ],
-      max_tokens: 300,
+      max_tokens: 400,
     }),
   });
 
@@ -542,8 +638,89 @@ async function fetchApollo(domain, apiKey) {
   return results;
 }
 
-// Agent helper: Find decision makers
-async function fetchDecisionMakers(companyName, domain, apiKey) {
+// Agent helper: Find decision makers — Apollo People Search (primary) + Perplexity (fallback)
+async function fetchDecisionMakers(companyName, domain, perplexityApiKey, apolloApiKey) {
+  let allContacts = [];
+
+  // PRIMARY SOURCE: Apollo People Search API
+  if (apolloApiKey) {
+    try {
+      const apolloContacts = await fetchApolloDecisionMakers(domain, apolloApiKey);
+      if (apolloContacts.length > 0) {
+        allContacts = apolloContacts.map(c => ({ ...c, source: 'apollo', verified: true }));
+      }
+    } catch (e) {
+      console.log('Apollo People Search failed:', e.message);
+    }
+  }
+
+  // SECONDARY SOURCE: Perplexity fills gaps for roles Apollo missed
+  if (perplexityApiKey) {
+    try {
+      const perplexityContacts = await fetchPerplexityDecisionMakers(companyName, domain, perplexityApiKey);
+      if (perplexityContacts.length > 0) {
+        // Only add contacts from Perplexity if not already found by Apollo (by name match)
+        const existingNames = new Set(allContacts.map(c => c.name.toLowerCase()));
+        for (const pc of perplexityContacts) {
+          if (!existingNames.has(pc.name.toLowerCase())) {
+            allContacts.push({ ...pc, source: 'perplexity', verified: false });
+          }
+        }
+      }
+    } catch (e) {
+      console.log('Perplexity decision makers failed:', e.message);
+    }
+  }
+
+  return { contacts: allContacts };
+}
+
+// Apollo People Search — search by domain + expanded title list
+async function fetchApolloDecisionMakers(domain, apiKey) {
+  const titleKeywords = [
+    'CEO', 'Chief Executive Officer',
+    'Founder', 'Co-Founder', 'Cofounder',
+    'CFO', 'Chief Financial Officer',
+    'COO', 'Chief Operating Officer',
+    'Managing Partner',
+    'Head of Operations', 'VP of Operations', 'VP Operations',
+    'Head of Finance', 'VP of Finance', 'VP Finance',
+    'Head of People', 'VP of People', 'VP People', 'Chief People Officer',
+    'Board Member', 'Board Director',
+    'Workplace', 'Real Estate', 'Facilities',
+  ];
+
+  const response = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': apiKey,
+    },
+    body: JSON.stringify({
+      q_organization_domains: domain,
+      person_titles: titleKeywords,
+      page: 1,
+      per_page: 15,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Apollo People ${response.status}`);
+
+  const data = await response.json();
+  const people = data.people || [];
+
+  return people
+    .filter(p => p.name && p.title)
+    .map(p => ({
+      name: p.name,
+      title: p.title,
+      linkedin: p.linkedin_url || '',
+      email: p.email || '',
+    }));
+}
+
+// Perplexity fallback for decision makers — expanded title list
+async function fetchPerplexityDecisionMakers(companyName, domain, apiKey) {
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
@@ -567,13 +744,19 @@ REQUIRED SEARCHES:
 3. Search "${companyName} founder CEO"
 4. Check ${domain}/about or ${domain}/team pages
 
-I need the following roles (find at least 2-3 people):
+I need the following roles (find as many as possible, at least 2-3):
 - CEO / Founder / Co-Founder (MUST find this person)
 - COO / Chief Operating Officer
 - CFO / Chief Financial Officer
+- Managing Partner
 - VP of Operations / Head of Operations
-- Head of Real Estate / Workplace / Facilities
-- VP of People / Head of HR / Chief People Officer
+- Head of Finance / VP of Finance
+- Head of People / VP of People / Chief People Officer
+- Board Members (list any known)
+- Key Investors (individuals from lead investment firms)
+- Anyone with "Workplace" in their title
+- Anyone with "Real Estate" in their title
+- Head of Facilities / VP of Facilities
 
 For each person found, provide:
 - Full name
@@ -591,7 +774,7 @@ Return ONLY this JSON (no other text):
 }`,
         },
       ],
-      max_tokens: 500,
+      max_tokens: 700,
     }),
   });
 
@@ -602,22 +785,17 @@ Return ONLY this JSON (no other text):
   if (jsonMatch) {
     try {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Validate we got actual contacts
       if (parsed.contacts && Array.isArray(parsed.contacts) && parsed.contacts.length > 0) {
-        // Filter out any placeholder or invalid entries
-        parsed.contacts = parsed.contacts.filter(c =>
+        return parsed.contacts.filter(c =>
           c.name && c.name !== 'Full Name' && c.name !== '' &&
           c.title && c.title !== 'Job Title' && c.title !== ''
         );
-        if (parsed.contacts.length > 0) {
-          return parsed;
-        }
       }
     } catch (e) {
-      // JSON parse error, fall through
+      // JSON parse error
     }
   }
-  return { contacts: [] };
+  return [];
 }
 
 // Agent helper: Recent news search via Tavily - focused on growth signals
@@ -645,7 +823,7 @@ async function fetchRecentNews(companyName, apiKey) {
     // Extract or estimate date from the result
     let publishedDate = r.published_date || r.publishedDate || null;
 
-    // Try to extract date from content if not provided
+    // Fallback 1: Try to extract date from content
     if (!publishedDate && r.content) {
       const datePatterns = [
         /(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/i,
@@ -661,21 +839,43 @@ async function fetchRecentNews(companyName, apiKey) {
       }
     }
 
-    // Categorize the news type based on content
-    const content = (r.title + ' ' + (r.content || '')).toLowerCase();
+    // Fallback 2: Try to extract date from URL (common pattern: /2025/01/15/ or /2025-01-15)
+    if (!publishedDate && r.url) {
+      const urlDateMatch = r.url.match(/\/(\d{4})\/(\d{2})\/(\d{2})\//);
+      if (urlDateMatch) {
+        publishedDate = `${urlDateMatch[1]}-${urlDateMatch[2]}-${urlDateMatch[3]}`;
+      } else {
+        const urlDateMatch2 = r.url.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (urlDateMatch2) {
+          publishedDate = urlDateMatch2[0];
+        }
+      }
+    }
+
+    // Categorize the news type based on content — focused on growth signals
+    const textContent = (r.title + ' ' + (r.content || '')).toLowerCase();
     let newsType = 'Company News';
-    if (content.includes('funding') || content.includes('raised') || content.includes('series') || content.includes('investment')) {
+    if (textContent.includes('funding') || textContent.includes('raised') || textContent.includes('series') || textContent.includes('investment') || textContent.includes('round')) {
       newsType = 'Funding';
-    } else if (content.includes('launch') || content.includes('new product') || content.includes('release')) {
+    } else if (textContent.includes('launch') || textContent.includes('new product') || textContent.includes('release') || textContent.includes('announces')) {
       newsType = 'Product Launch';
-    } else if (content.includes('expansion') || content.includes('new office') || content.includes('opens') || content.includes('headquarters')) {
+    } else if (textContent.includes('expansion') || textContent.includes('new office') || textContent.includes('opens') || textContent.includes('headquarters') || textContent.includes('relocat')) {
       newsType = 'Expansion';
-    } else if (content.includes('ceo') || content.includes('hire') || content.includes('appoint') || content.includes('leadership')) {
+    } else if (textContent.includes('ceo') || textContent.includes('hire') || textContent.includes('appoint') || textContent.includes('leadership') || textContent.includes('names')) {
       newsType = 'Leadership';
-    } else if (content.includes('acquisition') || content.includes('acquire') || content.includes('merger')) {
+    } else if (textContent.includes('acquisition') || textContent.includes('acquire') || textContent.includes('merger') || textContent.includes('bought')) {
       newsType = 'M&A';
-    } else if (content.includes('partnership') || content.includes('partner')) {
+    } else if (textContent.includes('partnership') || textContent.includes('partner') || textContent.includes('collaborat') || textContent.includes('integrat')) {
       newsType = 'Partnership';
+    }
+
+    // Normalize date for sorting
+    let sortDate = 0;
+    if (publishedDate && publishedDate !== 'Unknown') {
+      try {
+        sortDate = new Date(publishedDate).getTime();
+        if (isNaN(sortDate)) sortDate = 0;
+      } catch { sortDate = 0; }
     }
 
     return {
@@ -683,18 +883,25 @@ async function fetchRecentNews(companyName, apiKey) {
       url: r.url,
       snippet: r.content?.slice(0, 200) || '',
       source: new URL(r.url).hostname.replace('www.', ''),
-      publishedDate: publishedDate || 'Recent',
+      publishedDate: publishedDate || 'Unknown',
       newsType,
+      _sortDate: sortDate,
     };
   });
 
-  // Sort by date (most recent first) and filter to most relevant
-  const sortedArticles = articles
-    .filter(a => a.title && a.title.toLowerCase().includes(companyName.toLowerCase().split(' ')[0]))
-    .slice(0, 5);
+  // Sort by date descending (most recent first), unknowns at end
+  articles.sort((a, b) => b._sortDate - a._sortDate);
 
-  // If no articles match company name, return top results
-  return { articles: sortedArticles.length > 0 ? sortedArticles : articles.slice(0, 5) };
+  // Filter to most relevant (company name match) then clean up internal fields
+  const companyFirstWord = companyName.toLowerCase().split(' ')[0];
+  const relevant = articles.filter(a =>
+    a.title && a.title.toLowerCase().includes(companyFirstWord)
+  );
+  const finalArticles = (relevant.length > 0 ? relevant : articles)
+    .slice(0, 5)
+    .map(({ _sortDate, ...rest }) => rest);
+
+  return { articles: finalArticles };
 }
 
 // Firecrawl helper: Scrape a URL and get clean markdown/structured data
