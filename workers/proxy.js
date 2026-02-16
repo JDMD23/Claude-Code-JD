@@ -185,13 +185,25 @@ export default {
           } catch {}
         }
 
-        // STEP 5: Hiring Intelligence
-        dossier.hiring = {
-          status: dossier.company.hiringStatus || 'Unknown',
-          totalJobs: dossier.company.totalJobs || 'Unknown',
-          nycJobs: dossier.company.nycJobs || 'Unknown',
-          keyRoles: dossier.company.keyRolesHiring || '',
-        };
+        // STEP 5: Hiring Intelligence (smart deduplication)
+        const careersUrl = dossier.nycIntel?.careersUrl || dossier.company.careersUrl || '';
+        try {
+          const hiringData = await fetchHiringIntelligence(
+            companyName,
+            domain,
+            careersUrl,
+            tavilyApiKey,
+            perplexityApiKey
+          );
+          dossier.hiring = hiringData;
+        } catch {
+          dossier.hiring = {
+            status: dossier.company.hiringStatus || 'Unknown',
+            totalJobs: dossier.company.totalJobs || 0,
+            nycJobs: dossier.company.nycJobs || 0,
+            keyRoles: dossier.company.keyRolesHiring || '',
+          };
+        }
 
         // STEP 6: Generate Outreach Email
         if (perplexityApiKey) {
@@ -515,6 +527,140 @@ async function fetchRecentNews(companyName, apiKey) {
   }));
 
   return { articles };
+}
+
+// Agent helper: Smart hiring intelligence - goes to careers page as source of truth
+async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyApiKey, perplexityApiKey) {
+  const hiring = {
+    status: 'Unknown',
+    totalJobs: 0,
+    nycJobs: 0,
+    keyRoles: '',
+    careersUrl: careersUrl || '',
+    source: '',
+  };
+
+  // Step 1: If we don't have a careers URL, find it
+  if (!careersUrl && tavilyApiKey) {
+    const searchResponse = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: tavilyApiKey,
+        query: `${companyName} careers jobs openings site:${domain}`,
+        search_depth: 'basic',
+        include_answer: false,
+        max_results: 5
+      }),
+    });
+
+    if (searchResponse.ok) {
+      const searchData = await searchResponse.json();
+      for (const result of (searchData.results || [])) {
+        if (result.url.includes('careers') || result.url.includes('jobs') ||
+            result.url.includes('greenhouse') || result.url.includes('lever') ||
+            result.url.includes('ashby') || result.url.includes('workable')) {
+          careersUrl = result.url;
+          hiring.careersUrl = careersUrl;
+          break;
+        }
+      }
+    }
+  }
+
+  // Step 2: Scrape the careers page for job listings
+  if (careersUrl && tavilyApiKey) {
+    const scrapeResponse = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: tavilyApiKey,
+        query: `site:${careersUrl.replace(/^https?:\/\//, '').split('/')[0]} open jobs positions`,
+        search_depth: 'advanced',
+        include_answer: true,
+        max_results: 10
+      }),
+    });
+
+    if (scrapeResponse.ok) {
+      const scrapeData = await scrapeResponse.json();
+      hiring.source = 'careers_page';
+
+      // If Tavily gives us an answer about job count, use it
+      if (scrapeData.answer) {
+        const countMatch = scrapeData.answer.match(/(\d+)\s*(?:open|job|position|role)/i);
+        if (countMatch) {
+          hiring.totalJobs = parseInt(countMatch[1]);
+        }
+      }
+    }
+  }
+
+  // Step 3: Use Perplexity to analyze and deduplicate job counts
+  if (perplexityApiKey) {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${perplexityApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-sonar-small-128k-online',
+        messages: [
+          {
+            role: 'user',
+            content: `Find the EXACT number of open jobs at ${companyName} (${domain}).
+
+IMPORTANT: The same job often appears on multiple sites (LinkedIn, Indeed, Glassdoor, company careers page).
+I need the DEDUPLICATED count - unique positions only.
+
+Steps:
+1. Go to their official careers page: ${careersUrl || domain + '/careers'}
+2. Count unique job titles (not duplicate postings)
+3. Check their ATS (Greenhouse, Lever, Ashby, Workable) if applicable
+4. Identify how many are specifically in New York City / NYC
+
+Return JSON only:
+{
+  "totalJobs": number (unique positions, not duplicates across job boards),
+  "nycJobs": number (positions specifically in NYC/New York),
+  "hiringStatus": "Actively Hiring" or "Selective" or "Hiring Freeze" or "Unknown",
+  "keyRoles": "comma-separated list of 3-5 notable open positions",
+  "source": "where you found this info (careers page URL or ATS name)"
+}`
+          },
+        ],
+        max_tokens: 400,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        hiring.totalJobs = parsed.totalJobs || hiring.totalJobs;
+        hiring.nycJobs = parsed.nycJobs || 0;
+        hiring.status = parsed.hiringStatus || hiring.status;
+        hiring.keyRoles = parsed.keyRoles || '';
+        if (parsed.source) hiring.source = parsed.source;
+      }
+    }
+  }
+
+  // Determine hiring status if still unknown
+  if (hiring.status === 'Unknown' && hiring.totalJobs > 0) {
+    if (hiring.totalJobs > 20) {
+      hiring.status = 'Actively Hiring';
+    } else if (hiring.totalJobs > 5) {
+      hiring.status = 'Selective';
+    } else {
+      hiring.status = 'Limited Hiring';
+    }
+  }
+
+  return hiring;
 }
 
 // Agent helper: Generate personalized outreach email

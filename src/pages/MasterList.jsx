@@ -630,20 +630,36 @@ function DossierModal({ dossier, onClose }) {
             <div className="dossier-grid-info">
               <div className="dossier-item">
                 <span className="label">Hiring Status</span>
-                <span className="value">{dossier.hiring?.status || '-'}</span>
+                <span className={`value ${dossier.hiring?.status === 'Actively Hiring' ? 'highlight' : ''}`}>
+                  {dossier.hiring?.status || '-'}
+                </span>
               </div>
               <div className="dossier-item">
-                <span className="label">Total Jobs</span>
-                <span className="value">{dossier.hiring?.totalJobs || '-'}</span>
+                <span className="label">Total Open Roles</span>
+                <span className="value highlight">{dossier.hiring?.totalJobs || 0}</span>
               </div>
               <div className="dossier-item">
-                <span className="label">NYC Jobs</span>
-                <span className="value">{dossier.hiring?.nycJobs || '-'}</span>
+                <span className="label">NYC-Based Roles</span>
+                <span className="value highlight">{dossier.hiring?.nycJobs || 0}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Data Source</span>
+                <span className="value text-muted" style={{ fontSize: '0.75rem' }}>
+                  {dossier.hiring?.source || 'AI analysis'}
+                </span>
               </div>
               <div className="dossier-item full-width">
-                <span className="label">Key Roles</span>
+                <span className="label">Key Roles Hiring</span>
                 <span className="value">{dossier.hiring?.keyRoles || '-'}</span>
               </div>
+              {dossier.hiring?.careersUrl && (
+                <div className="dossier-item full-width">
+                  <span className="label">Careers Page</span>
+                  <a href={dossier.hiring.careersUrl} target="_blank" rel="noopener noreferrer" className="value link">
+                    {dossier.hiring.careersUrl} <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
