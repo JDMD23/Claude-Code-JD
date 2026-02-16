@@ -211,7 +211,12 @@ export default {
           try {
             const emailData = await generateOutreachEmail(companyName, domain, dossier, perplexityApiKey);
             dossier.outreachEmail = emailData.email || '';
-          } catch {}
+            if (emailData.subject) dossier.outreachEmailSubject = emailData.subject;
+            if (emailData.body) dossier.outreachEmailBody = emailData.body;
+          } catch (e) {
+            console.log('Outreach email generation failed:', e.message);
+            dossier.outreachEmail = '';
+          }
         }
 
         return jsonResponse(dossier);
@@ -303,17 +308,17 @@ EXECUTION STEPS:
 1. CORPORATE PROFILE
 - Find their Headquarters (city, state)
 - Manhattan Presence: Check if they have a physical office in Manhattan. Provide the EXACT street address (e.g., "123 Park Ave, Floor 10, New York, NY 10001"). If remote or no NYC office, return "N/A"
-- Company Description: 1-2 sentence summary of their business
+- Company Description: ONE short sentence (under 15 words) describing what they do. Be specific about their product/service.
 
-2. FINANCIALS & SIZE (High Precision)
+2. INDUSTRY CLASSIFICATION (Crunchbase-style)
+- Use a SPECIFIC industry category, NOT broad terms like "Information Technology & Services"
+- Examples of good categories: "Enterprise Software", "Fintech", "B2B SaaS", "Developer Tools", "AI/ML Platform", "Healthcare Tech", "E-commerce", "Cybersecurity", "Data Analytics", "Marketing Tech", "HR Tech", "Supply Chain Software", "Legal Tech", "PropTech", "EdTech", "Climate Tech"
+- Be specific to what the company actually builds/sells
+
+3. FINANCIALS & SIZE (High Precision)
 - Total Funding: Search Crunchbase, Pitchbook, press releases. Return USD amount like "$50M" or "Undisclosed"
-- Lead Investors: List primary VC firms or institutional backers
+- Top Investors: Search Crunchbase, Pitchbook, TechCrunch for their investors. List 2-3 primary VC firms or institutional backers by name (e.g., "Sequoia Capital, Andreessen Horowitz, Tiger Global"). If bootstrapped, say "Bootstrapped". If unknown, say "Unknown".
 - Employee Count: Avoid broad ranges. Find specific number from Pitchbook, LinkedIn, or 10-K filings. Format: "approximately [Number]"
-
-3. REAL ESTATE NEWS (Time Sensitive)
-- Search: "${domain.split('.')[0]} office lease", "${domain.split('.')[0]} new office NYC", "${domain.split('.')[0]} relocation"
-- Only report news from last 6 months relative to ${today}
-- If no recent news, state: "No significant office lease news in the last 6 months"
 
 4. HIRING INTELLIGENCE
 - Check their careers page or ATS (Ashby, Greenhouse, Lever, Wellfound)
@@ -324,18 +329,17 @@ EXECUTION STEPS:
 Return ONLY this JSON:
 {
   "companyName": "",
-  "description": "",
-  "industry": "",
+  "description": "one short sentence under 15 words",
+  "industry": "specific category like Enterprise Software or Fintech",
   "founded": "",
   "headquarters": "",
   "nycAddress": "exact street address or N/A",
   "nycOfficeConfirmed": "Yes/No",
   "employeeCount": "approximately [number]",
   "totalFunding": "",
-  "topInvestors": "",
+  "topInvestors": "comma-separated investor names or Bootstrapped or Unknown",
   "lastFundingType": "",
   "lastFundingDate": "",
-  "recentLeaseNews": "",
   "hiringStatus": "Active/Frozen",
   "totalJobs": "",
   "nycJobs": "",
@@ -404,67 +408,102 @@ Respond with JSON only:
 }
 
 async function fetchTavilyAddress(companyName, domain, apiKey) {
-  // Search for NYC office address
-  const addressResponse = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: `${companyName} NYC office address New York location`,
-      search_depth: 'advanced',
-      include_answer: true,
-      max_results: 5
-    }),
-  });
-
-  if (!addressResponse.ok) throw new Error(`Tavily ${addressResponse.status}`);
-  const addressData = await addressResponse.json();
-
   const results = {};
 
-  // Extract address from Tavily's AI answer
-  if (addressData.answer) {
-    const addressMatch = addressData.answer.match(/\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*New York[,\s]+NY\s+\d{5}/i);
-    if (addressMatch) {
-      results.nycAddress = addressMatch[0];
-    }
-  }
+  // Multiple search strategies for NYC office address
+  const searchQueries = [
+    `"${companyName}" office address "New York" OR "NYC" OR "Manhattan"`,
+    `${companyName} headquarters New York office location`,
+    `site:${domain} contact address "New York"`,
+  ];
 
-  // Also check search results for addresses
-  if (!results.nycAddress && addressData.results) {
-    for (const result of addressData.results) {
-      const content = result.content || '';
-      const addressMatch = content.match(/\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*New York[,\s]+NY\s+\d{5}/i);
-      if (addressMatch) {
-        results.nycAddress = addressMatch[0];
-        break;
+  // Try each search query until we find an address
+  for (const query of searchQueries) {
+    if (results.nycAddress) break;
+
+    try {
+      const addressResponse = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query,
+          search_depth: 'advanced',
+          include_answer: true,
+          max_results: 8
+        }),
+      });
+
+      if (!addressResponse.ok) continue;
+      const addressData = await addressResponse.json();
+
+      // Multiple regex patterns for different address formats
+      const addressPatterns = [
+        // Standard format: 123 Park Ave, New York, NY 10001
+        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd|Way|Drive|Dr|Lane|Ln)[,\s]+(?:Suite|Ste|Floor|Fl|#|Unit)?\s*\d*[,\s]*(?:New York|Manhattan|NYC)[,\s]+(?:NY)?\s*\d{5}/gi,
+        // Short format: 123 Park Ave, NYC
+        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*(?:New York|NYC|Manhattan)/gi,
+        // Just street address in NY context
+        /\d+\s+(?:West|East|W|E)?\s*\d*(?:st|nd|rd|th)?\s+(?:Street|St|Avenue|Ave)[,\s]+(?:Floor|Fl)?\s*\d*/gi,
+      ];
+
+      // Check Tavily's AI answer first
+      if (addressData.answer) {
+        for (const pattern of addressPatterns) {
+          const match = addressData.answer.match(pattern);
+          if (match) {
+            results.nycAddress = match[0].trim();
+            break;
+          }
+        }
       }
+
+      // Also check search results
+      if (!results.nycAddress && addressData.results) {
+        for (const result of addressData.results) {
+          const content = (result.content || '') + ' ' + (result.title || '');
+          for (const pattern of addressPatterns) {
+            const match = content.match(pattern);
+            if (match) {
+              results.nycAddress = match[0].trim();
+              break;
+            }
+          }
+          if (results.nycAddress) break;
+        }
+      }
+    } catch (e) {
+      // Continue to next search query
     }
   }
 
   // Search for careers page
-  const careersResponse = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: `${companyName} careers jobs page site:${domain}`,
-      search_depth: 'basic',
-      include_answer: false,
-      max_results: 3
-    }),
-  });
+  try {
+    const careersResponse = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: `${companyName} careers jobs page site:${domain}`,
+        search_depth: 'basic',
+        include_answer: false,
+        max_results: 3
+      }),
+    });
 
-  if (careersResponse.ok) {
-    const careersData = await careersResponse.json();
-    if (careersData.results && careersData.results.length > 0) {
-      const careersUrl = careersData.results.find(r =>
-        r.url.includes('careers') || r.url.includes('jobs') || r.url.includes('hiring')
-      );
-      if (careersUrl) {
-        results.careersUrl = careersUrl.url;
+    if (careersResponse.ok) {
+      const careersData = await careersResponse.json();
+      if (careersData.results && careersData.results.length > 0) {
+        const careersUrl = careersData.results.find(r =>
+          r.url.includes('careers') || r.url.includes('jobs') || r.url.includes('hiring')
+        );
+        if (careersUrl) {
+          results.careersUrl = careersUrl.url;
+        }
       }
     }
+  } catch (e) {
+    // Careers search failed, continue
   }
 
   return results;
@@ -515,30 +554,44 @@ async function fetchDecisionMakers(companyName, domain, apiKey) {
       model: 'llama-3.1-sonar-small-128k-online',
       messages: [
         {
+          role: 'system',
+          content: 'You are an expert at finding company executives and leadership. Always return valid JSON with contacts found. Search thoroughly using LinkedIn and company websites.'
+        },
+        {
           role: 'user',
-          content: `Find the key decision makers at ${companyName} (${domain}) who would be involved in office space decisions.
+          content: `Find the leadership team at ${companyName} (website: ${domain}).
 
-Look for:
-- CEO / Founder
+REQUIRED SEARCHES:
+1. Search LinkedIn for "${companyName}" company page and find executives
+2. Search "${companyName} leadership team" or "${companyName} about us team"
+3. Search "${companyName} founder CEO"
+4. Check ${domain}/about or ${domain}/team pages
+
+I need the following roles (find at least 2-3 people):
+- CEO / Founder / Co-Founder (MUST find this person)
 - COO / Chief Operating Officer
-- Head of Real Estate / Workplace
-- Office Manager / Facilities Manager
-- Head of People / HR (they often handle office decisions)
+- CFO / Chief Financial Officer
+- VP of Operations / Head of Operations
+- Head of Real Estate / Workplace / Facilities
+- VP of People / Head of HR / Chief People Officer
 
-Search LinkedIn, the company website's team/about page, and recent press releases.
+For each person found, provide:
+- Full name
+- Exact job title
+- LinkedIn URL (search "firstname lastname ${companyName} linkedin")
 
-Return JSON only:
+IMPORTANT: You MUST find at least the CEO/Founder. Every company has one.
+
+Return ONLY this JSON (no other text):
 {
   "contacts": [
-    {"name": "Full Name", "title": "Job Title", "linkedin": "linkedin URL if found"},
-    {"name": "Full Name", "title": "Job Title", "linkedin": "linkedin URL if found"}
+    {"name": "John Smith", "title": "CEO & Co-Founder", "linkedin": "https://linkedin.com/in/johnsmith"},
+    {"name": "Jane Doe", "title": "COO", "linkedin": "https://linkedin.com/in/janedoe"}
   ]
-}
-
-Return up to 3 most relevant contacts. If you can't find anyone, return empty array.`,
+}`,
         },
       ],
-      max_tokens: 400,
+      max_tokens: 500,
     }),
   });
 
@@ -547,36 +600,101 @@ Return up to 3 most relevant contacts. If you can't find anyone, return empty ar
   const content = data.choices?.[0]?.message?.content || '';
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Validate we got actual contacts
+      if (parsed.contacts && Array.isArray(parsed.contacts) && parsed.contacts.length > 0) {
+        // Filter out any placeholder or invalid entries
+        parsed.contacts = parsed.contacts.filter(c =>
+          c.name && c.name !== 'Full Name' && c.name !== '' &&
+          c.title && c.title !== 'Job Title' && c.title !== ''
+        );
+        if (parsed.contacts.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      // JSON parse error, fall through
+    }
   }
   return { contacts: [] };
 }
 
-// Agent helper: Recent news search via Tavily
+// Agent helper: Recent news search via Tavily - focused on growth signals
 async function fetchRecentNews(companyName, apiKey) {
+  // Search for growth signals: funding, new product, expansion, leadership, office moves
+  const growthQuery = `"${companyName}" (funding OR "series" OR "raised" OR "investment" OR "new product" OR "launch" OR "expansion" OR "new office" OR "new hire" OR "CEO" OR "leadership" OR "growth" OR "acquisition" OR "partnership")`;
+
   const response = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       api_key: apiKey,
-      query: `${companyName} office lease OR ${companyName} new office OR ${companyName} expansion OR ${companyName} headquarters move`,
+      query: growthQuery,
       search_depth: 'advanced',
       include_answer: false,
-      max_results: 5
+      max_results: 8,
+      include_raw_content: false,
     }),
   });
 
   if (!response.ok) throw new Error(`Tavily ${response.status}`);
   const data = await response.json();
 
-  const articles = (data.results || []).map(r => ({
-    title: r.title,
-    url: r.url,
-    snippet: r.content?.slice(0, 200) || '',
-    source: new URL(r.url).hostname,
-  }));
+  const articles = (data.results || []).map(r => {
+    // Extract or estimate date from the result
+    let publishedDate = r.published_date || r.publishedDate || null;
 
-  return { articles };
+    // Try to extract date from content if not provided
+    if (!publishedDate && r.content) {
+      const datePatterns = [
+        /(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/i,
+        /\d{1,2}\/\d{1,2}\/\d{4}/,
+        /\d{4}-\d{2}-\d{2}/,
+      ];
+      for (const pattern of datePatterns) {
+        const match = r.content.match(pattern);
+        if (match) {
+          publishedDate = match[0];
+          break;
+        }
+      }
+    }
+
+    // Categorize the news type based on content
+    const content = (r.title + ' ' + (r.content || '')).toLowerCase();
+    let newsType = 'Company News';
+    if (content.includes('funding') || content.includes('raised') || content.includes('series') || content.includes('investment')) {
+      newsType = 'Funding';
+    } else if (content.includes('launch') || content.includes('new product') || content.includes('release')) {
+      newsType = 'Product Launch';
+    } else if (content.includes('expansion') || content.includes('new office') || content.includes('opens') || content.includes('headquarters')) {
+      newsType = 'Expansion';
+    } else if (content.includes('ceo') || content.includes('hire') || content.includes('appoint') || content.includes('leadership')) {
+      newsType = 'Leadership';
+    } else if (content.includes('acquisition') || content.includes('acquire') || content.includes('merger')) {
+      newsType = 'M&A';
+    } else if (content.includes('partnership') || content.includes('partner')) {
+      newsType = 'Partnership';
+    }
+
+    return {
+      title: r.title,
+      url: r.url,
+      snippet: r.content?.slice(0, 200) || '',
+      source: new URL(r.url).hostname.replace('www.', ''),
+      publishedDate: publishedDate || 'Recent',
+      newsType,
+    };
+  });
+
+  // Sort by date (most recent first) and filter to most relevant
+  const sortedArticles = articles
+    .filter(a => a.title && a.title.toLowerCase().includes(companyName.toLowerCase().split(' ')[0]))
+    .slice(0, 5);
+
+  // If no articles match company name, return top results
+  return { articles: sortedArticles.length > 0 ? sortedArticles : articles.slice(0, 5) };
 }
 
 // Firecrawl helper: Scrape a URL and get clean markdown/structured data
@@ -801,16 +919,27 @@ Return JSON only:
 
 // Agent helper: Generate personalized outreach email
 async function generateOutreachEmail(companyName, domain, dossier, apiKey) {
+  // Build rich context from all available data
+  const contactName = dossier.contacts?.[0]?.name || '';
+  const contactTitle = dossier.contacts?.[0]?.title || '';
+  const recentNewsItems = (dossier.recentNews || []).slice(0, 2).map(n => `- ${n.title} (${n.newsType || 'News'})`).join('\n');
+  const keyRoles = dossier.hiring?.keyRoles || dossier.hiring?.jobListings?.slice(0, 3).map(j => j.title).join(', ') || '';
+
   const context = `
-Company: ${companyName}
-Industry: ${dossier.company.industry || 'Unknown'}
-Employees: ${dossier.company.employeeCount || 'Unknown'}
-HQ: ${dossier.company.headquarters || 'Unknown'}
-NYC Address: ${dossier.nycIntel?.address || 'Unknown'}
-Funding: ${dossier.company.totalFunding || 'Unknown'}
-Hiring: ${dossier.hiring?.status || 'Unknown'}, ${dossier.hiring?.totalJobs || '?'} open roles
-Recent News: ${dossier.recentNews?.[0]?.title || 'None found'}
-Key Contact: ${dossier.contacts?.[0]?.name || 'Unknown'}, ${dossier.contacts?.[0]?.title || ''}
+COMPANY: ${companyName} (${domain})
+INDUSTRY: ${dossier.company.industry || 'Tech'}
+DESCRIPTION: ${dossier.company.description || 'Technology company'}
+EMPLOYEES: ${dossier.company.employeeCount || 'Unknown'}
+HEADQUARTERS: ${dossier.company.headquarters || 'Unknown'}
+NYC OFFICE: ${dossier.nycIntel?.address || dossier.company.nycAddress || 'Looking for space'}
+TOTAL FUNDING: ${dossier.company.totalFunding || 'Unknown'}
+TOP INVESTORS: ${dossier.company.topInvestors || 'Unknown'}
+HIRING STATUS: ${dossier.hiring?.status || 'Unknown'}
+OPEN ROLES: ${dossier.hiring?.totalJobs || 0} total, ${dossier.hiring?.nycJobs || 0} in NYC
+KEY ROLES HIRING: ${keyRoles}
+CONTACT: ${contactName}${contactTitle ? ` (${contactTitle})` : ''}
+RECENT NEWS:
+${recentNewsItems || 'No recent news found'}
   `.trim();
 
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -824,38 +953,65 @@ Key Contact: ${dossier.contacts?.[0]?.name || 'Unknown'}, ${dossier.contacts?.[0
       messages: [
         {
           role: 'system',
-          content: 'You are a commercial real estate broker writing cold outreach emails. Be concise, professional, and personalized based on the company intel provided.'
+          content: 'You are an expert commercial real estate broker who specializes in helping tech companies find office space in NYC. Write personalized, conversational cold emails that feel genuine - not salesy. Always reference specific details about the company to show you did your research.'
         },
         {
           role: 'user',
-          content: `Write a short cold email (3-4 sentences max) to reach out about NYC office space opportunities.
+          content: `Write a cold outreach email for this company. Use the intel below to personalize it.
 
-COMPANY INTEL:
 ${context}
 
-Requirements:
-- Reference something specific about their company (funding, growth, hiring, etc.)
-- Mention you specialize in NYC office space for tech/startup companies
-- Keep it under 100 words
-- Don't be salesy, be helpful
-- End with a soft CTA (coffee chat, quick call)
+REQUIREMENTS:
+1. Start with a specific hook about their company (pick ONE of these based on what's available):
+   - Recent funding round or investors
+   - Hiring growth / specific roles they're hiring for
+   - Recent news about expansion or product launch
+   - Industry-specific angle
+2. Briefly mention you help tech companies find office space in NYC
+3. Keep it to 3-4 sentences MAX (under 80 words)
+4. End with a casual CTA like "Worth a quick chat?" or "Happy to share some options if helpful"
+5. Tone: Friendly, helpful, NOT salesy
 
-Return JSON only:
-{"email": "the email text", "subject": "email subject line"}`,
+${contactName ? `Address it to ${contactName}` : 'Use a generic greeting like "Hi there"'}
+
+Return ONLY valid JSON:
+{"subject": "short catchy subject line under 8 words", "email": "the email body text"}`,
         },
       ],
-      max_tokens: 300,
+      max_tokens: 400,
     }),
   });
 
-  if (!response.ok) throw new Error(`Perplexity ${response.status}`);
+  if (!response.ok) {
+    console.log('Outreach email API error:', response.status);
+    return { email: '' };
+  }
+
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content || '';
+
+  // Try to parse JSON from response
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
-    const parsed = JSON.parse(jsonMatch[0]);
-    return { email: `Subject: ${parsed.subject}\n\n${parsed.email}` };
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.email && parsed.subject) {
+        return {
+          email: `Subject: ${parsed.subject}\n\n${parsed.email}`,
+          subject: parsed.subject,
+          body: parsed.email
+        };
+      }
+    } catch (e) {
+      console.log('Failed to parse outreach email JSON:', e.message);
+    }
   }
+
+  // Fallback: if we got text but not JSON, try to use it directly
+  if (content && content.length > 20) {
+    return { email: content };
+  }
+
   return { email: '' };
 }
 
