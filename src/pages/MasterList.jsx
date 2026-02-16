@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp } from 'lucide-react';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe } from 'lucide-react';
 import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
@@ -151,6 +151,80 @@ function formatFunding(amount) {
   if (num >= 1000000) return `$${(num / 1000000).toFixed(1)}M`;
   if (num >= 1000) return `$${(num / 1000).toFixed(0)}K`;
   return `$${num.toLocaleString()}`;
+}
+
+// Derive company name from domain
+function nameFromDomain(domain) {
+  const clean = domain.replace(/https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  const name = clean.split('.')[0];
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// Quick-Add Domain Input
+function QuickAddDomain({ onAdd }) {
+  const [value, setValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const raw = value.trim();
+    if (!raw) return;
+
+    // Clean the input — accept "stripe.com", "www.stripe.com", "https://stripe.com"
+    let domain = raw.replace(/https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    if (!domain.includes('.')) {
+      domain = domain + '.com';
+    }
+
+    const companyName = nameFromDomain(domain);
+    const website = `https://${domain}`;
+
+    onAdd([{
+      organizationName: companyName,
+      website,
+      description: '',
+      employeeCount: '',
+      nycJobs: '',
+      lastFundingAmount: '',
+      lastFundingType: '',
+      totalFunding: '',
+      prospectStatus: '',
+      nycOfficeConfirmed: '',
+      nycAddress: '',
+    }]);
+
+    setValue('');
+    setIsOpen(false);
+  };
+
+  if (!isOpen) {
+    return (
+      <button className="btn btn-secondary quick-add-trigger" onClick={() => { setIsOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}>
+        <Plus size={18} strokeWidth={1.5} />
+        Quick Add
+      </button>
+    );
+  }
+
+  return (
+    <form className="quick-add-form" onSubmit={handleSubmit}>
+      <Globe size={16} strokeWidth={1.5} className="quick-add-icon" />
+      <input
+        ref={inputRef}
+        type="text"
+        className="quick-add-input"
+        placeholder="stripe.com"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => { if (!value.trim()) setIsOpen(false); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setValue(''); setIsOpen(false); } }}
+      />
+      <button type="submit" className="btn btn-primary quick-add-submit" disabled={!value.trim()}>
+        Add
+      </button>
+    </form>
+  );
 }
 
 // Dossier Card Component
@@ -493,7 +567,11 @@ function MasterList() {
               Add {selectedIds.size} to CRM
             </button>
           )}
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
+          <QuickAddDomain onAdd={(newCompanies) => {
+            const updated = addToMasterList(newCompanies);
+            setCompanies(updated);
+          }} />
+          <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
             <Upload size={18} strokeWidth={1.5} />
             Import CSV
           </button>

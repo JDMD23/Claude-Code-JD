@@ -172,6 +172,56 @@
   margin-top: 0.75rem;
 }
 
+/* Quick-Add Domain */
+.quick-add-trigger {
+  white-space: nowrap;
+}
+
+.quick-add-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.quick-add-form:focus-within {
+  border-color: var(--accent-primary);
+}
+
+.quick-add-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.quick-add-input {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  font-family: var(--font-mono);
+  padding: 0.375rem 0;
+  width: 160px;
+  outline: none;
+}
+
+.quick-add-input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick-add-submit {
+  padding: 0.375rem 0.75rem;
+  font-size: var(--text-caption);
+}
+
+.quick-add-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .dossier-grid {
