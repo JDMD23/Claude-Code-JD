@@ -386,6 +386,7 @@ function CompanyModal({ company, onClose, onEnrich, onDelete }) {
             <InfoRow label="Website" value={company.website} isLink />
             <InfoRow label="LinkedIn" value={company.linkedin} isLink />
             <InfoRow label="Founded" value={company.foundedDate} />
+            <InfoRow label="Headquarters" value={company.headquarters} />
             <InfoRow label="Description" value={company.description} />
             <InfoRow label="NYC Address" value={company.nycAddress} />
             <InfoRow label="NYC Office Confirmed" value={company.nycOfficeConfirmed} />
@@ -572,7 +573,8 @@ function MasterList() {
         industry: enrichData.industry || c.industry,
         linkedin: enrichData.linkedinUrl || c.linkedin,
         foundedDate: enrichData.founded || c.foundedDate,
-        nycAddress: enrichData.nycAddress || enrichData.headquarters || c.nycAddress,
+        nycAddress: enrichData.nycAddress || c.nycAddress,
+        headquarters: enrichData.headquarters || c.headquarters,
         nycOfficeConfirmed: enrichData.nycOfficeConfirmed || c.nycOfficeConfirmed,
         workPolicyQuote: enrichData.workPolicyQuote || c.workPolicyQuote,
         totalJobs: enrichData.totalJobs || c.totalJobs,
