@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown } from 'lucide-react';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp } from 'lucide-react';
 import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
+import './MasterList.css';
 
 // Get domain from website URL for Clearbit logo
 function getDomain(website) {
@@ -21,7 +22,6 @@ function CompanyLogo({ website, name, size = 32 }) {
   const domain = getDomain(website);
 
   if (!domain || hasError) {
-    // Fallback: show first letter of company name
     return (
       <div
         className="company-logo-fallback"
@@ -66,7 +66,6 @@ function parseCSV(text) {
   const lines = text.split('\n').filter(line => line.trim());
   if (lines.length < 2) return [];
 
-  // Parse header - handle quoted fields
   const parseRow = (row) => {
     const result = [];
     let current = '';
@@ -105,14 +104,11 @@ function parseCSV(text) {
 // Map CSV columns to our data structure
 function mapCompanyData(rawData) {
   return rawData.map(row => ({
-    // Company Info
     organizationName: row['Organization Name'] || row['Company Name'] || row['Name'] || '',
     website: row['Website'] || row['URL'] || '',
     linkedin: row['LinkedIn'] || row['LinkedIn URL'] || '',
     foundedDate: row['Founded Date'] || row['Founded'] || '',
     description: row['Description'] || '',
-
-    // Funding Info
     topInvestors: row['Top 5 Investors'] || row['Investors'] || '',
     fundingRounds: row['Number of Funding Rounds'] || row['Funding Rounds'] || '',
     lastFundingDate: row['Last Funding Date'] || '',
@@ -121,8 +117,6 @@ function mapCompanyData(rawData) {
     totalFunding: row['Total Funding Amount (in USD)'] || row['Total Funding'] || '',
     fundingInRange: row['Funding in Range'] || '',
     fundingStageOK: row['Funding Stage OK'] || '',
-
-    // Enrichment Data
     employeeCount: row['Employee Count'] || row['Employees'] || row['Size'] || '',
     headcountFilter: row['Headcount Filter'] || '',
     careersUrl: row['Careers URL'] || '',
@@ -136,14 +130,98 @@ function mapCompanyData(rawData) {
     nycOfficeConfirmed: row['NYC Office Confirmed'] || '',
     nycAddress: row['NYC Address'] || '',
     excludeRemoteOnly: row['Exclude Remote Only'] || '',
-
-    // Scoring
     prospectScore: row['Prospect Score'] || '',
     prospectStatus: row['Prospect Status'] || '',
-
-    // Contacts
     keyContacts: row['Key Contacts'] || '',
   }));
+}
+
+function getProspectBadgeClass(status) {
+  if (!status) return '';
+  if (status.includes('Hot')) return 'hot';
+  if (status.includes('Worth') || status.includes('Look')) return 'look';
+  return 'low';
+}
+
+function formatFunding(amount) {
+  if (!amount) return null;
+  const num = parseInt(amount);
+  if (isNaN(num)) return null;
+  if (num >= 1000000000) return `$${(num / 1000000000).toFixed(1)}B`;
+  if (num >= 1000000) return `$${(num / 1000000).toFixed(1)}M`;
+  if (num >= 1000) return `$${(num / 1000).toFixed(0)}K`;
+  return `$${num.toLocaleString()}`;
+}
+
+// Dossier Card Component
+function DossierCard({ company, isSelected, onSelect, onClick }) {
+  return (
+    <div
+      className={`dossier-card ${isSelected ? 'selected' : ''}`}
+      onClick={() => onClick(company)}
+    >
+      <div className="dossier-select" onClick={(e) => { e.stopPropagation(); onSelect(company.id); }}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => {}}
+        />
+      </div>
+
+      <div className="dossier-header">
+        <CompanyLogo website={company.website} name={company.organizationName} size={40} />
+        <div className="dossier-identity">
+          <h4 className="dossier-name">{company.organizationName}</h4>
+          {company.website && (
+            <span className="dossier-domain">
+              {company.website.replace(/https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {company.description && (
+        <p className="dossier-desc">{company.description.length > 100 ? company.description.slice(0, 100) + '...' : company.description}</p>
+      )}
+
+      <div className="dossier-stats">
+        {company.employeeCount && (
+          <div className="dossier-stat">
+            <Users size={13} strokeWidth={1.5} />
+            <span>{company.employeeCount}</span>
+          </div>
+        )}
+        {company.nycJobs && (
+          <div className="dossier-stat">
+            <MapPin size={13} strokeWidth={1.5} />
+            <span>{company.nycJobs} NYC</span>
+          </div>
+        )}
+        {company.lastFundingAmount && (
+          <div className="dossier-stat">
+            <TrendingUp size={13} strokeWidth={1.5} />
+            <span>{formatFunding(company.lastFundingAmount)}</span>
+            {company.lastFundingType && <span className="dossier-stat-sub">{company.lastFundingType}</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="dossier-footer">
+        {company.prospectStatus && (
+          <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
+            {company.prospectStatus}
+          </span>
+        )}
+        <span className="dossier-nyc-badge">
+          {company.nycOfficeConfirmed === 'Yes' ? (
+            <span className="nyc-confirmed"><MapPin size={12} strokeWidth={1.5} /> NYC</span>
+          ) : company.nycOfficeConfirmed === 'No' ? (
+            <span className="nyc-unconfirmed">No NYC</span>
+          ) : null}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // Company Detail Modal
@@ -188,7 +266,7 @@ function CompanyModal({ company, onClose }) {
 
         <div className="modal-body">
           <div className="info-section">
-            <h4><Building2 size={16} /> Company Info</h4>
+            <h4><Building2 size={16} strokeWidth={1.5} /> Company Info</h4>
             <InfoRow label="Website" value={company.website} isLink />
             <InfoRow label="LinkedIn" value={company.linkedin} isLink />
             <InfoRow label="Founded" value={company.foundedDate} />
@@ -198,7 +276,7 @@ function CompanyModal({ company, onClose }) {
           </div>
 
           <div className="info-section">
-            <h4><Users size={16} /> Team & Hiring</h4>
+            <h4><Users size={16} strokeWidth={1.5} /> Team & Hiring</h4>
             <InfoRow label="Employee Count" value={company.employeeCount} />
             <InfoRow label="Headcount Filter" value={company.headcountFilter} />
             <InfoRow label="Total Jobs" value={company.totalJobs} />
@@ -212,9 +290,9 @@ function CompanyModal({ company, onClose }) {
           </div>
 
           <div className="info-section">
-            <h4><DollarSign size={16} /> Funding</h4>
-            <InfoRow label="Total Funding" value={company.totalFunding ? `$${parseInt(company.totalFunding).toLocaleString()}` : ''} />
-            <InfoRow label="Last Funding Amount" value={company.lastFundingAmount ? `$${parseInt(company.lastFundingAmount).toLocaleString()}` : ''} />
+            <h4><DollarSign size={16} strokeWidth={1.5} /> Funding</h4>
+            <InfoRow label="Total Funding" value={company.totalFunding ? formatFunding(company.totalFunding) : ''} />
+            <InfoRow label="Last Funding Amount" value={company.lastFundingAmount ? formatFunding(company.lastFundingAmount) : ''} />
             <InfoRow label="Last Funding Type" value={company.lastFundingType} />
             <InfoRow label="Last Funding Date" value={company.lastFundingDate} />
             <InfoRow label="Funding Rounds" value={company.fundingRounds} />
@@ -224,7 +302,7 @@ function CompanyModal({ company, onClose }) {
           </div>
 
           <div className="info-section">
-            <h4><Briefcase size={16} /> Scoring & Contacts</h4>
+            <h4><Briefcase size={16} strokeWidth={1.5} /> Scoring & Contacts</h4>
             <InfoRow label="Prospect Score" value={company.prospectScore} />
             <InfoRow label="Prospect Status" value={company.prospectStatus} />
             <InfoRow label="Key Contacts" value={company.keyContacts} />
@@ -280,13 +358,6 @@ function AddToCRMModal({ selectedCompanies, onClose, onAdd }) {
   );
 }
 
-function getProspectBadgeClass(status) {
-  if (!status) return '';
-  if (status.includes('Hot')) return 'hot';
-  if (status.includes('Worth') || status.includes('Look')) return 'look';
-  return 'low';
-}
-
 function MasterList() {
   const [companies, setCompanies] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -295,6 +366,7 @@ function MasterList() {
   const [showCRMModal, setShowCRMModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState('grid');
   const [filters, setFilters] = useState({
     prospectStatus: '',
     nycOffice: '',
@@ -306,7 +378,6 @@ function MasterList() {
     setCompanies(getMasterList());
   }, []);
 
-  // Handle file upload
   const handleFileUpload = async (file) => {
     if (!file || !file.name.endsWith('.csv')) {
       alert('Please upload a CSV file');
@@ -326,7 +397,6 @@ function MasterList() {
     }
   };
 
-  // Drag and drop handlers
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragging(true);
@@ -343,7 +413,6 @@ function MasterList() {
     handleFileUpload(file);
   };
 
-  // Selection handlers
   const toggleSelect = (id) => {
     const newSelected = new Set(selectedIds);
     if (newSelected.has(id)) {
@@ -362,7 +431,6 @@ function MasterList() {
     }
   };
 
-  // Add to CRM
   const handleAddToCRM = (companiesToAdd, stage) => {
     const prospects = getProspects();
     const existingIds = new Set(prospects.map(p => p.masterListId));
@@ -382,9 +450,7 @@ function MasterList() {
     alert(`Added ${companiesToAdd.length} companies to CRM!`);
   };
 
-  // Filter companies
   const filteredCompanies = companies.filter(company => {
-    // Search filter
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
@@ -394,18 +460,15 @@ function MasterList() {
       if (!matchesSearch) return false;
     }
 
-    // Status filter
     if (filters.prospectStatus && company.prospectStatus !== filters.prospectStatus) {
       return false;
     }
 
-    // NYC Office filter
     if (filters.nycOffice) {
       if (filters.nycOffice === 'yes' && company.nycOfficeConfirmed !== 'Yes') return false;
       if (filters.nycOffice === 'no' && company.nycOfficeConfirmed === 'Yes') return false;
     }
 
-    // Funding stage filter
     if (filters.fundingStage) {
       if (filters.fundingStage === 'ok' && company.fundingStageOK !== '✅ Yes') return false;
       if (filters.fundingStage === 'not_ok' && company.fundingStageOK === '✅ Yes') return false;
@@ -426,12 +489,12 @@ function MasterList() {
         <div className="header-actions">
           {selectedIds.size > 0 && (
             <button className="btn btn-primary" onClick={() => setShowCRMModal(true)}>
-              <Users size={18} />
+              <Users size={18} strokeWidth={1.5} />
               Add {selectedIds.size} to CRM
             </button>
           )}
           <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
-            <Upload size={18} />
+            <Upload size={18} strokeWidth={1.5} />
             Import CSV
           </button>
           <input
@@ -452,7 +515,7 @@ function MasterList() {
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
         >
-          <Upload size={48} className="upload-icon" />
+          <Upload size={48} strokeWidth={1.5} className="upload-icon" />
           <h4>Drop your CSV file here</h4>
           <p>or click to browse</p>
           <p className="text-muted" style={{ marginTop: '1rem', fontSize: '0.8rem' }}>
@@ -463,7 +526,7 @@ function MasterList() {
         <>
           <div className="table-toolbar">
             <div className="search-box">
-              <Search size={18} className="search-icon" />
+              <Search size={18} strokeWidth={1.5} className="search-icon" />
               <input
                 type="text"
                 placeholder="Search companies..."
@@ -474,13 +537,29 @@ function MasterList() {
               />
             </div>
             <div className="filter-group">
+              <div className="view-toggle">
+                <button
+                  className={`toggle-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  title="Grid view"
+                >
+                  <LayoutGrid size={18} strokeWidth={1.5} />
+                </button>
+                <button
+                  className={`toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
+                  onClick={() => setViewMode('table')}
+                  title="Table view"
+                >
+                  <List size={18} strokeWidth={1.5} />
+                </button>
+              </div>
               <button
                 className={`btn btn-secondary ${showFilters ? 'active' : ''}`}
                 onClick={() => setShowFilters(!showFilters)}
               >
-                <Filter size={18} />
+                <Filter size={18} strokeWidth={1.5} />
                 Filters
-                <ChevronDown size={16} />
+                <ChevronDown size={16} strokeWidth={1.5} />
               </button>
             </div>
           </div>
@@ -492,11 +571,11 @@ function MasterList() {
                 onChange={(e) => setFilters(f => ({ ...f, prospectStatus: e.target.value }))}
               >
                 <option value="">All Prospect Statuses</option>
-                <option value="🔥 Hot Prospect">🔥 Hot Prospect</option>
-                <option value="👀 Worth a Look">👀 Worth a Look</option>
-                <option value="❄️ Low Priority">❄️ Low Priority</option>
-                <option value="❌ Remote Only">❌ Remote Only</option>
-                <option value="❌ No NYC Presence">❌ No NYC Presence</option>
+                <option value="🔥 Hot Prospect">Hot Prospect</option>
+                <option value="👀 Worth a Look">Worth a Look</option>
+                <option value="❄️ Low Priority">Low Priority</option>
+                <option value="❌ Remote Only">Remote Only</option>
+                <option value="❌ No NYC Presence">No NYC Presence</option>
               </select>
 
               <select
@@ -526,85 +605,116 @@ function MasterList() {
             </div>
           )}
 
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '40px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.size === filteredCompanies.length && filteredCompanies.length > 0}
-                        onChange={selectAll}
-                      />
-                    </th>
-                    <th>Company</th>
-                    <th>Status</th>
-                    <th>Employees</th>
-                    <th>NYC Jobs</th>
-                    <th>Last Funding</th>
-                    <th>NYC Office</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCompanies.slice(0, 100).map(company => (
-                    <tr
-                      key={company.id}
-                      onClick={() => setSelectedCompany(company)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <td onClick={(e) => e.stopPropagation()}>
+          {viewMode === 'grid' ? (
+            <>
+              <div className="dossier-toolbar">
+                <label className="dossier-select-all" onClick={(e) => { e.preventDefault(); selectAll(); }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === filteredCompanies.length && filteredCompanies.length > 0}
+                    onChange={() => {}}
+                  />
+                  <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : `${filteredCompanies.length} companies`}</span>
+                </label>
+              </div>
+              <div className="dossier-grid">
+                {filteredCompanies.slice(0, 100).map(company => (
+                  <DossierCard
+                    key={company.id}
+                    company={company}
+                    isSelected={selectedIds.has(company.id)}
+                    onSelect={toggleSelect}
+                    onClick={setSelectedCompany}
+                  />
+                ))}
+              </div>
+              {filteredCompanies.length > 100 && (
+                <div className="dossier-overflow">
+                  Showing first 100 of {filteredCompanies.length} companies. Use filters or search to narrow down.
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '40px' }}>
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(company.id)}
-                          onChange={() => toggleSelect(company.id)}
+                          checked={selectedIds.size === filteredCompanies.length && filteredCompanies.length > 0}
+                          onChange={selectAll}
                         />
-                      </td>
-                      <td className="primary-cell">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <CompanyLogo website={company.website} name={company.organizationName} size={32} />
-                          <div>
-                            <div>{company.organizationName}</div>
-                            {company.website && (
-                              <span className="text-muted" style={{ fontSize: '0.75rem' }}>
-                                {company.website.replace(/https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        {company.prospectStatus && (
-                          <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                            {company.prospectStatus}
-                          </span>
-                        )}
-                      </td>
-                      <td>{company.employeeCount || '-'}</td>
-                      <td>{company.nycJobs || '-'}</td>
-                      <td>
-                        {company.lastFundingAmount ? (
-                          <>
-                            ${(parseInt(company.lastFundingAmount) / 1000000).toFixed(1)}M
-                            {company.lastFundingType && <span className="text-muted"> ({company.lastFundingType})</span>}
-                          </>
-                        ) : '-'}
-                      </td>
-                      <td>
-                        {company.nycOfficeConfirmed === 'Yes' ? '✅' :
-                         company.nycOfficeConfirmed === 'No' ? '❌' : '❓'}
-                      </td>
+                      </th>
+                      <th>Company</th>
+                      <th>Status</th>
+                      <th>Employees</th>
+                      <th>NYC Jobs</th>
+                      <th>Last Funding</th>
+                      <th>NYC Office</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {filteredCompanies.length > 100 && (
-              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                Showing first 100 of {filteredCompanies.length} companies. Use filters or search to narrow down.
+                  </thead>
+                  <tbody>
+                    {filteredCompanies.slice(0, 100).map(company => (
+                      <tr
+                        key={company.id}
+                        onClick={() => setSelectedCompany(company)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(company.id)}
+                            onChange={() => toggleSelect(company.id)}
+                          />
+                        </td>
+                        <td className="primary-cell">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <CompanyLogo website={company.website} name={company.organizationName} size={32} />
+                            <div>
+                              <div>{company.organizationName}</div>
+                              {company.website && (
+                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                  {company.website.replace(/https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          {company.prospectStatus && (
+                            <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
+                              {company.prospectStatus}
+                            </span>
+                          )}
+                        </td>
+                        <td>{company.employeeCount || '-'}</td>
+                        <td>{company.nycJobs || '-'}</td>
+                        <td>
+                          {company.lastFundingAmount ? (
+                            <>
+                              {formatFunding(company.lastFundingAmount)}
+                              {company.lastFundingType && <span className="text-muted"> ({company.lastFundingType})</span>}
+                            </>
+                          ) : '-'}
+                        </td>
+                        <td>
+                          {company.nycOfficeConfirmed === 'Yes' ? '✅' :
+                           company.nycOfficeConfirmed === 'No' ? '❌' : '❓'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
+              {filteredCompanies.length > 100 && (
+                <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  Showing first 100 of {filteredCompanies.length} companies. Use filters or search to narrow down.
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
