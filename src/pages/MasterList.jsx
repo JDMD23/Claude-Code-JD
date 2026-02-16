@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus, Clock, AlertCircle, ChevronRight, Activity } from 'lucide-react';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus, Clock, AlertCircle, ChevronRight, Activity, Star, Award, GraduationCap, MessageSquare, Shield } from 'lucide-react';
 import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, COMPANY_STATUSES, PROSPECT_TIERS, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany, updateCompanyStatus, deleteCompaniesFromMasterList, getCompanyActivities, logActivity } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
@@ -310,7 +310,13 @@ function DossierCard({ company, isSelected, isFocused, onSelect, onClick }) {
       </div>
 
       <div className="dossier-footer">
-        {company.prospectStatus && (
+        {company.prospectScore != null && company.prospectScore !== '' && (
+          <span className={`prospect-score-pill ${company.prospectScore >= 8 ? 'score-high' : company.prospectScore >= 5 ? 'score-mid' : 'score-low'}`}>
+            <Star size={11} strokeWidth={2} />
+            {company.prospectScore}/10
+          </span>
+        )}
+        {company.prospectStatus && !company.prospectScore && (
           <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
             {company.prospectStatus}
           </span>
@@ -334,6 +340,194 @@ function isDataStale(lastResearchedAt) {
   if (!lastResearchedAt) return false;
   const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
   return new Date(lastResearchedAt).getTime() < thirtyDaysAgo;
+}
+
+// Prospect Scorecard Component
+function ProspectScorecard({ scorecard }) {
+  if (!scorecard) return null;
+
+  const { prospectScore, funding, investor, founder } = scorecard;
+
+  // Color for the overall score
+  const getScoreColor = (score) => {
+    if (score >= 8) return '#22c55e';
+    if (score >= 5) return '#f59e0b';
+    if (score >= 3) return '#f97316';
+    return '#ef4444';
+  };
+
+  const scoreColor = getScoreColor(prospectScore);
+  const scorePercent = (prospectScore / 10) * 100;
+
+  return (
+    <div className="scorecard">
+      <div className="scorecard-header">
+        <div className="scorecard-total">
+          <div className="scorecard-ring" style={{ '--score-percent': `${scorePercent}%`, '--score-color': scoreColor }}>
+            <span className="scorecard-number" style={{ color: scoreColor }}>{prospectScore}</span>
+            <span className="scorecard-max">/10</span>
+          </div>
+          <div className="scorecard-label">Prospect Score</div>
+        </div>
+      </div>
+      <div className="scorecard-dimensions">
+        <ScoreDimension
+          icon={<DollarSign size={14} strokeWidth={1.5} />}
+          label="Funding"
+          score={funding.score}
+          maxScore={funding.maxScore}
+          signal={funding.signal}
+          color="#22c55e"
+        />
+        <ScoreDimension
+          icon={<Shield size={14} strokeWidth={1.5} />}
+          label="Investor"
+          score={investor.score}
+          maxScore={investor.maxScore}
+          signal={investor.signal}
+          color="#3b82f6"
+        />
+        <ScoreDimension
+          icon={<Award size={14} strokeWidth={1.5} />}
+          label="Founder"
+          score={founder.score}
+          maxScore={founder.maxScore}
+          signal={founder.signal}
+          color="#a855f7"
+        />
+      </div>
+    </div>
+  );
+}
+
+// Score Dimension Row
+function ScoreDimension({ icon, label, score, maxScore, signal, color }) {
+  const fillPercent = (score / maxScore) * 100;
+  return (
+    <div className="score-dimension">
+      <div className="score-dimension-header">
+        <span className="score-dimension-icon" style={{ color }}>{icon}</span>
+        <span className="score-dimension-label">{label}</span>
+        <span className="score-dimension-value" style={{ color }}>
+          {score}/{maxScore}
+        </span>
+      </div>
+      <div className="score-dimension-bar">
+        <div
+          className="score-dimension-fill"
+          style={{ width: `${fillPercent}%`, backgroundColor: color }}
+        />
+      </div>
+      <span className="score-dimension-signal">{signal}</span>
+    </div>
+  );
+}
+
+// Founder Profile Card Component
+function FounderProfileCard({ profile }) {
+  if (!profile) return null;
+
+  const getPedigreeColor = (score) => {
+    if (score >= 3) return '#22c55e';
+    if (score >= 2) return '#3b82f6';
+    if (score >= 1) return '#f59e0b';
+    return '#6b7280';
+  };
+
+  const pedigreeColor = getPedigreeColor(profile.pedigreeScore);
+
+  return (
+    <div className="founder-card">
+      <div className="founder-card-header">
+        <div className="founder-avatar">
+          {profile.photo ? (
+            <img src={profile.photo} alt={profile.name} className="founder-photo" />
+          ) : (
+            <span className="founder-initial">{profile.name?.charAt(0)?.toUpperCase() || '?'}</span>
+          )}
+        </div>
+        <div className="founder-identity">
+          <span className="founder-name">{profile.name}</span>
+          <span className="founder-title-text">{profile.title}</span>
+          <div className="founder-links">
+            {profile.linkedin && (
+              <a href={profile.linkedin} target="_blank" rel="noopener noreferrer" className="founder-link">
+                LinkedIn <ExternalLink size={10} />
+              </a>
+            )}
+            {profile.email && (
+              <a href={`mailto:${profile.email}`} className="founder-link">
+                <Mail size={10} /> Email
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="founder-pedigree-badge" style={{ borderColor: pedigreeColor, color: pedigreeColor }}>
+          <Star size={12} strokeWidth={2} />
+          <span>{profile.pedigreeScore}/3</span>
+        </div>
+      </div>
+
+      {profile.tldr && (
+        <div className="founder-tldr">
+          <span className="founder-section-label">TL;DR</span>
+          <p>{profile.tldr}</p>
+        </div>
+      )}
+
+      {profile.career && profile.career.length > 0 && (
+        <div className="founder-career">
+          <span className="founder-section-label"><Briefcase size={12} strokeWidth={1.5} /> Career History</span>
+          <div className="founder-career-list">
+            {profile.career.map((role, idx) => (
+              <div key={idx} className="founder-career-item">
+                <span className="career-title">{role.title}</span>
+                <span className="career-company">{role.company}</span>
+                {role.years && <span className="career-years">{role.years}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {profile.education && profile.education.length > 0 && (
+        <div className="founder-education">
+          <span className="founder-section-label"><GraduationCap size={12} strokeWidth={1.5} /> Education</span>
+          <div className="founder-education-list">
+            {profile.education.map((edu, idx) => (
+              <div key={idx} className="founder-education-item">
+                <span className="edu-school">{edu.school}</span>
+                {(edu.degree || edu.field) && (
+                  <span className="edu-degree">{[edu.degree, edu.field].filter(Boolean).join(', ')}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="founder-pedigree-detail">
+        <span className="founder-section-label"><Award size={12} strokeWidth={1.5} /> Pedigree</span>
+        <div className="pedigree-tag" style={{ backgroundColor: pedigreeColor + '18', color: pedigreeColor, borderColor: pedigreeColor + '40' }}>
+          {profile.pedigree}
+        </div>
+        {profile.pedigreeReason && (
+          <span className="pedigree-reason">{profile.pedigreeReason}</span>
+        )}
+      </div>
+
+      {profile.talkingPoints && profile.talkingPoints.length > 0 && (
+        <div className="founder-talking-points">
+          <span className="founder-section-label"><MessageSquare size={12} strokeWidth={1.5} /> Talking Points</span>
+          <ul className="talking-points-list">
+            {profile.talkingPoints.map((point, idx) => (
+              <li key={idx}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Company Detail Modal
@@ -488,9 +682,29 @@ function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, o
             <InfoRow label="Funding Stage OK" value={company.fundingStageOK} />
           </div>
 
+          {/* Prospect Scorecard */}
+          {(company.scorecard || dossier?.scorecard) && (
+            <div className="info-section">
+              <h4><Star size={16} strokeWidth={1.5} /> Prospect Scorecard</h4>
+              <ProspectScorecard scorecard={company.scorecard || dossier?.scorecard} />
+            </div>
+          )}
+
+          {/* Founder Profiles */}
+          {(company.founderProfiles || dossier?.founderProfiles)?.length > 0 && (
+            <div className="info-section">
+              <h4><Award size={16} strokeWidth={1.5} /> Founder Due Diligence</h4>
+              <div className="founder-profiles-list">
+                {(company.founderProfiles || dossier?.founderProfiles).map((profile, idx) => (
+                  <FounderProfileCard key={idx} profile={profile} />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="info-section">
             <h4><Briefcase size={16} strokeWidth={1.5} /> Scoring & Contacts</h4>
-            <InfoRow label="Prospect Score" value={company.prospectScore} />
+            <InfoRow label="Prospect Score" value={company.prospectScore != null ? `${company.prospectScore}/10` : ''} />
             <InfoRow label="Prospect Status" value={company.prospectStatus} />
             <InfoRow label="Key Contacts" value={company.keyContacts} />
           </div>
@@ -828,6 +1042,26 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySav
             </div>
           </div>
 
+          {/* Prospect Scorecard */}
+          {dossier.scorecard && (
+            <div className="dossier-section">
+              <h4><Star size={16} strokeWidth={1.5} /> Prospect Scorecard</h4>
+              <ProspectScorecard scorecard={dossier.scorecard} />
+            </div>
+          )}
+
+          {/* Founder Due Diligence */}
+          {dossier.founderProfiles && dossier.founderProfiles.length > 0 && (
+            <div className="dossier-section">
+              <h4><Award size={16} strokeWidth={1.5} /> Founder Due Diligence</h4>
+              <div className="founder-profiles-list">
+                {dossier.founderProfiles.map((profile, idx) => (
+                  <FounderProfileCard key={idx} profile={profile} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* NYC Intel */}
           <div className="dossier-section">
             <h4><MapPin size={16} strokeWidth={1.5} /> NYC Office Intel</h4>
@@ -1150,19 +1384,19 @@ function MasterList() {
 
   const handleRunAgent = async (domain, companyId) => {
     setAgentRunning(true);
-    setAgentProgress({ step: 1, total: 6, message: 'Starting research agent...' });
+    setAgentProgress({ step: 1, total: 8, message: 'Starting research agent...' });
     setAgentDossier(null);
     setAgentCompanyId(companyId);
 
     // Simulate progress updates (actual progress comes from API completion)
     const progressInterval = setInterval(() => {
       setAgentProgress(prev => {
-        if (!prev || prev.step >= 5) return prev;
+        if (!prev || prev.step >= 7) return prev;
         const nextStep = prev.step + 1;
         const stepInfo = AGENT_STEPS.find(s => s.step === nextStep);
         return {
           step: nextStep,
-          total: 6,
+          total: 8,
           message: stepInfo?.description || 'Processing...'
         };
       });
@@ -1173,7 +1407,7 @@ function MasterList() {
         setAgentProgress(progress);
       });
       clearInterval(progressInterval);
-      setAgentProgress({ step: 6, total: 6, message: 'Research complete!' });
+      setAgentProgress({ step: 8, total: 8, message: 'Research complete!' });
 
       // Auto-save dossier to company immediately
       const updated = saveDossierToCompany(companyId, dossier);
@@ -1620,7 +1854,7 @@ function MasterList() {
                         />
                       </th>
                       <th>Company</th>
-                      <th>Status</th>
+                      <th>Score</th>
                       <th>Employees</th>
                       <th>NYC Jobs</th>
                       <th>Last Funding</th>
@@ -1655,11 +1889,16 @@ function MasterList() {
                           </div>
                         </td>
                         <td>
-                          {company.prospectStatus && (
+                          {company.prospectScore != null && company.prospectScore !== '' ? (
+                            <span className={`prospect-score-pill ${company.prospectScore >= 8 ? 'score-high' : company.prospectScore >= 5 ? 'score-mid' : 'score-low'}`}>
+                              <Star size={11} strokeWidth={2} />
+                              {company.prospectScore}/10
+                            </span>
+                          ) : company.prospectStatus ? (
                             <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
                               {company.prospectStatus}
                             </span>
-                          )}
+                          ) : '-'}
                         </td>
                         <td>{company.employeeCount || '-'}</td>
                         <td>{company.nycJobs || '-'}</td>

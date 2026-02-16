@@ -165,6 +165,38 @@ export default {
           } catch {}
         }
 
+        // STEP 2B: Founder Due Diligence (after identifying decision makers)
+        const founderProfiles = [];
+        {
+          // Identify founders from contacts
+          const founders = (dossier.contacts || []).filter(c =>
+            c.title && /founder|co-founder|cofounder|ceo.*founder|founder.*ceo/i.test(c.title)
+          );
+
+          // If no founders found, treat the CEO as a founder
+          if (founders.length === 0) {
+            const ceo = (dossier.contacts || []).find(c =>
+              c.title && /^ceo$|chief executive/i.test(c.title)
+            );
+            if (ceo) founders.push(ceo);
+          }
+
+          // Run DD on up to 3 founders (in parallel)
+          if (founders.length > 0 && (perplexityApiKey || firecrawlApiKey || apolloApiKey)) {
+            const ddPromises = founders.slice(0, 3).map(founder =>
+              performFounderDD(founder, companyName, domain, firecrawlApiKey, apolloApiKey, perplexityApiKey)
+                .catch(() => null)
+            );
+            const results = await Promise.allSettled(ddPromises);
+            for (const result of results) {
+              if (result.status === 'fulfilled' && result.value) {
+                founderProfiles.push(result.value);
+              }
+            }
+          }
+        }
+        dossier.founderProfiles = founderProfiles;
+
         // STEP 3: NYC Address Deep Search (multi-source with confirmation logic)
         {
           const nycSources = []; // Track independent sources that found an address
@@ -293,6 +325,52 @@ export default {
           dossier.outreachEmail = `Subject: ${subject}\n\n${body}`;
           dossier.outreachEmailSubject = subject;
           dossier.outreachEmailBody = body;
+        }
+
+        // STEP 7: Calculate Prospect Scorecard
+        {
+          // Funding Score (0-4)
+          const lastFundingAmt = dossier.company?.lastFundingAmount || dossier.company?.totalFunding || '';
+          const fundingResult = calculateFundingScore(lastFundingAmt);
+
+          // Investor Score (0-3)
+          const investorString = dossier.company?.topInvestors || dossier.company?.leadInvestors || '';
+          const investorResult = calculateInvestorScore(investorString);
+
+          // Founder Score (0-3) — take the max across all founder profiles
+          let founderScoreResult = { score: 0, reason: 'No founder data' };
+          let bestFounder = null;
+          for (const fp of (dossier.founderProfiles || [])) {
+            if (fp.pedigreeScore > founderScoreResult.score) {
+              founderScoreResult = { score: fp.pedigreeScore, reason: fp.pedigreeReason };
+              bestFounder = fp.name;
+            }
+          }
+
+          const prospectScore = fundingResult.score + investorResult.score + founderScoreResult.score;
+
+          dossier.scorecard = {
+            prospectScore,
+            funding: {
+              score: fundingResult.score,
+              maxScore: 4,
+              signal: fundingResult.signal,
+              amount: lastFundingAmt,
+            },
+            investor: {
+              score: investorResult.score,
+              maxScore: 3,
+              signal: investorResult.signal,
+              matchedInvestor: investorResult.matchedInvestor,
+              tier: investorResult.tier,
+            },
+            founder: {
+              score: founderScoreResult.score,
+              maxScore: 3,
+              signal: founderScoreResult.reason,
+              bestFounder: bestFounder,
+            },
+          };
         }
 
         return jsonResponse(dossier);
@@ -1478,6 +1556,316 @@ Status: ${p.prospectStatus || 'Unknown'}`;
   }
 
   return prompt;
+}
+
+// ============ PROSPECT SCORECARD: VC TIER LISTS ============
+const VC_TIERS = {
+  tier1: [
+    'y combinator', 'sequoia capital', 'sequoia', 'andreessen horowitz', 'a16z',
+    'accel', 'first round capital', 'first round', 'benchmark', 'kleiner perkins',
+    'lightspeed venture partners', 'lightspeed', 'general catalyst', 'founders fund',
+    'thrive capital', 'insight partners',
+  ],
+  tier2: [
+    'greylock partners', 'greylock', 'index ventures', 'bessemer venture partners', 'bessemer',
+    'khosla ventures', 'nea', 'new enterprise associates', 'boxgroup', 'initialized capital',
+    'initialized', 'ribbit capital', 'pear vc', 'floodgate', 'sv angel', 'pioneer fund',
+  ],
+  tier3: [
+    'founder collective', 'cowboy ventures', 'forerunner ventures', 'forerunner',
+    'lux capital', '8vc', 'cyberstarts', 'yl ventures', 'soma capital', 'homebrew',
+    'antler', 'qed investors', 'qed', 'bonfire ventures',
+  ],
+};
+
+// ============ PROSPECT SCORECARD: SCORING FUNCTIONS ============
+
+// Dimension 1: Funding Score (0-4)
+function calculateFundingScore(lastFundingAmount) {
+  const amount = parseFundingToNumber(lastFundingAmount);
+  if (amount >= 20000000) return { score: 4, signal: 'Mega-seed / exceptional conviction' };
+  if (amount >= 10000000) return { score: 3, signal: 'Large seed, strong institutional backing' };
+  if (amount >= 5000000) return { score: 2, signal: 'Solid seed round, at or above median' };
+  if (amount >= 3000000) return { score: 1, signal: 'Standard seed, enough runway' };
+  return { score: 0, signal: 'Small seed / pre-seed, unproven' };
+}
+
+// Dimension 2: Investor Score (0-3)
+function calculateInvestorScore(investorString) {
+  if (!investorString || investorString === 'Unknown' || investorString === 'Bootstrapped') {
+    return { score: 0, signal: 'No top-tier investors', matchedInvestor: null, tier: null };
+  }
+  const investorsLower = investorString.toLowerCase();
+
+  // Check Tier 1 first
+  for (const vc of VC_TIERS.tier1) {
+    if (investorsLower.includes(vc)) {
+      return { score: 3, signal: `Tier 1 investor: ${vc}`, matchedInvestor: vc, tier: 1 };
+    }
+  }
+  // Check Tier 2
+  for (const vc of VC_TIERS.tier2) {
+    if (investorsLower.includes(vc)) {
+      return { score: 2, signal: `Tier 2 investor: ${vc}`, matchedInvestor: vc, tier: 2 };
+    }
+  }
+  // Check Tier 3
+  for (const vc of VC_TIERS.tier3) {
+    if (investorsLower.includes(vc)) {
+      return { score: 1, signal: `Tier 3 investor: ${vc}`, matchedInvestor: vc, tier: 3 };
+    }
+  }
+  return { score: 0, signal: 'No top-tier investors', matchedInvestor: null, tier: null };
+}
+
+// Dimension 3: Founder Pedigree Score (0-3) — evaluated per founder, company gets max
+function calculateFounderPedigreeScore(founderProfile) {
+  if (!founderProfile) return { score: 0, reason: 'No founder data available' };
+
+  const pedigree = (founderProfile.pedigree || '').toLowerCase();
+  const summary = (founderProfile.tldr || '').toLowerCase();
+  const career = JSON.stringify(founderProfile.career || []).toLowerCase();
+
+  // Score 3: Serial Founder with Major Exit (>$50M or IPO)
+  if (pedigree.includes('serial founder') && (pedigree.includes('exit') || pedigree.includes('ipo') || pedigree.includes('public'))) {
+    return { score: 3, reason: founderProfile.pedigreeReason || 'Serial founder with major exit' };
+  }
+  if (pedigree.includes('major exit') || pedigree.includes('acquired for') || pedigree.includes('went public')) {
+    return { score: 3, reason: founderProfile.pedigreeReason || 'Previous company had major exit' };
+  }
+
+  // Score 2: Senior FAANG/Big Tech Alumni
+  const bigTechCompanies = ['google', 'meta', 'facebook', 'apple', 'amazon', 'microsoft', 'stripe', 'openai', 'netflix', 'uber', 'airbnb', 'linkedin', 'twitter', 'x corp', 'salesforce', 'palantir', 'databricks', 'snowflake'];
+  const seniorTitles = ['director', 'staff engineer', 'staff software', 'senior staff', 'principal', 'vp ', 'vice president', 'head of', 'chief'];
+
+  const hasBigTech = bigTechCompanies.some(co => career.includes(co) || summary.includes(co) || pedigree.includes(co));
+  const hasSeniorRole = seniorTitles.some(t => career.includes(t) || pedigree.includes(t));
+
+  if (hasBigTech && hasSeniorRole) {
+    return { score: 2, reason: founderProfile.pedigreeReason || 'Senior Big Tech alumni' };
+  }
+
+  // Score 1: Second-Time Founder
+  if (pedigree.includes('second-time') || pedigree.includes('serial') || pedigree.includes('previously founded') || pedigree.includes('former founder') || pedigree.includes('co-founded')) {
+    return { score: 1, reason: founderProfile.pedigreeReason || 'Second-time founder' };
+  }
+
+  // Score 0: First-Time Founder
+  return { score: 0, reason: founderProfile.pedigreeReason || 'First-time founder' };
+}
+
+// Helper: Parse funding amount strings to numbers
+function parseFundingToNumber(fundingStr) {
+  if (!fundingStr) return 0;
+  const cleaned = String(fundingStr).replace(/[$,\s]/g, '').toUpperCase();
+  let multiplier = 1;
+  if (cleaned.includes('B')) multiplier = 1000000000;
+  else if (cleaned.includes('M')) multiplier = 1000000;
+  else if (cleaned.includes('K')) multiplier = 1000;
+  const num = parseFloat(cleaned.replace(/[^0-9.]/g, ''));
+  return isNaN(num) ? 0 : num * multiplier;
+}
+
+// ============ FOUNDER DUE DILIGENCE ============
+
+// Scrape a founder's LinkedIn profile via Firecrawl
+async function scrapeFounderLinkedIn(linkedinUrl, firecrawlApiKey) {
+  if (!linkedinUrl || !firecrawlApiKey) return null;
+
+  try {
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: linkedinUrl,
+        formats: ['markdown'],
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.data?.markdown || null;
+  } catch {
+    return null;
+  }
+}
+
+// Enrich founder data via Apollo People Enrichment
+async function enrichFounderApollo(name, companyDomain, apolloApiKey) {
+  if (!apolloApiKey || !name) return null;
+
+  try {
+    const nameParts = name.trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const response = await fetch('https://api.apollo.io/v1/mixed_people/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apolloApiKey,
+      },
+      body: JSON.stringify({
+        q_organization_domains: companyDomain,
+        person_titles: ['Founder', 'Co-Founder', 'CEO', 'CTO'],
+        q_keywords: firstName + ' ' + lastName,
+        page: 1,
+        per_page: 3,
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const person = (data.people || []).find(p =>
+      p.name?.toLowerCase().includes(firstName.toLowerCase())
+    );
+    if (!person) return null;
+
+    return {
+      name: person.name,
+      title: person.title,
+      linkedin: person.linkedin_url,
+      email: person.email,
+      photo: person.photo_url || null,
+      city: person.city,
+      state: person.state,
+      departments: person.departments,
+      seniority: person.seniority,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Generate founder insights via Perplexity (TL;DR, talking points, pedigree analysis)
+async function generateFounderInsights(founderName, founderTitle, companyName, linkedinMarkdown, perplexityApiKey) {
+  if (!perplexityApiKey) return null;
+
+  const linkedinContext = linkedinMarkdown
+    ? `\n\nLINKEDIN PROFILE DATA:\n${linkedinMarkdown.slice(0, 3000)}`
+    : '';
+
+  try {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${perplexityApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-sonar-small-128k-online',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert VC analyst performing founder due diligence. Analyze the founder\'s background and return structured JSON. Be precise about career history.',
+          },
+          {
+            role: 'user',
+            content: `Analyze this founder for due diligence:
+
+NAME: ${founderName}
+TITLE: ${founderTitle}
+COMPANY: ${companyName}
+${linkedinContext}
+
+Research this person and provide:
+
+1. TL;DR: A 1-2 sentence summary of who they are and why they're notable
+2. CAREER HISTORY: List their previous roles (company, title, years if known)
+3. EDUCATION: List their degrees (school, degree, field)
+4. PEDIGREE CLASSIFICATION: Classify them into EXACTLY ONE of these categories:
+   - "Serial Founder w/ Major Exit" — if they sold a previous company for >$50M or took one public
+   - "Senior FAANG/Big Tech Alumni" — if they were Director/Staff Engineer+ at Google, Meta, Stripe, OpenAI, Apple, Amazon, Microsoft, etc.
+   - "Second-Time Founder" — if they ran a previous startup (even without a major exit)
+   - "First-Time Founder" — if no notable prior startup or big tech experience
+5. PEDIGREE REASON: One sentence explaining why you chose that classification
+6. TALKING POINTS: 3-5 conversation starters based on their background, recent posts, or interests
+
+Return ONLY this JSON:
+{
+  "tldr": "1-2 sentence summary",
+  "career": [{"company": "Company Name", "title": "Job Title", "years": "2019-2023"}],
+  "education": [{"school": "University Name", "degree": "BS", "field": "Computer Science"}],
+  "pedigree": "Serial Founder w/ Major Exit | Senior FAANG/Big Tech Alumni | Second-Time Founder | First-Time Founder",
+  "pedigreeReason": "explanation",
+  "talkingPoints": ["point 1", "point 2", "point 3"]
+}`,
+          },
+        ],
+        max_tokens: 800,
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Full Founder DD pipeline: scrape + enrich + insights for one founder
+async function performFounderDD(founder, companyName, domain, firecrawlApiKey, apolloApiKey, perplexityApiKey) {
+  const profile = {
+    name: founder.name,
+    title: founder.title,
+    linkedin: founder.linkedin || '',
+    email: founder.email || '',
+    photo: null,
+    tldr: '',
+    career: [],
+    education: [],
+    pedigree: 'First-Time Founder',
+    pedigreeReason: 'No data available',
+    pedigreeScore: 0,
+    talkingPoints: [],
+  };
+
+  // Step 1: Scrape LinkedIn (if URL available)
+  let linkedinMarkdown = null;
+  if (founder.linkedin && firecrawlApiKey) {
+    linkedinMarkdown = await scrapeFounderLinkedIn(founder.linkedin, firecrawlApiKey);
+  }
+
+  // Step 2: Enrich with Apollo
+  if (apolloApiKey) {
+    const apolloData = await enrichFounderApollo(founder.name, domain, apolloApiKey);
+    if (apolloData) {
+      profile.email = apolloData.email || profile.email;
+      profile.photo = apolloData.photo || profile.photo;
+      profile.linkedin = apolloData.linkedin || profile.linkedin;
+    }
+  }
+
+  // Step 3: Generate insights via Perplexity
+  if (perplexityApiKey) {
+    const insights = await generateFounderInsights(
+      founder.name, founder.title, companyName, linkedinMarkdown, perplexityApiKey
+    );
+    if (insights) {
+      profile.tldr = insights.tldr || '';
+      profile.career = insights.career || [];
+      profile.education = insights.education || [];
+      profile.pedigree = insights.pedigree || 'First-Time Founder';
+      profile.pedigreeReason = insights.pedigreeReason || '';
+      profile.talkingPoints = insights.talkingPoints || [];
+    }
+  }
+
+  // Step 4: Calculate pedigree score
+  const pedigreeResult = calculateFounderPedigreeScore(profile);
+  profile.pedigreeScore = pedigreeResult.score;
+  profile.pedigreeReason = pedigreeResult.reason || profile.pedigreeReason;
+
+  return profile;
 }
 
 function jsonResponse(data, status = 200) {

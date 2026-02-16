@@ -5,10 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 export const AGENT_STEPS = [
   { step: 1, label: 'Company Overview', description: 'Gathering company info from Perplexity + Apollo' },
   { step: 2, label: 'Decision Makers', description: 'Finding key contacts for office space decisions' },
-  { step: 3, label: 'NYC Address Search', description: 'Deep search for exact NYC office address' },
-  { step: 4, label: 'Recent News', description: 'Searching for recent office/lease news' },
-  { step: 5, label: 'Hiring Intelligence', description: 'Scraping careers page with Firecrawl for job listings' },
-  { step: 6, label: 'Outreach Email', description: 'Generating personalized cold email' },
+  { step: 3, label: 'Founder Due Diligence', description: 'Researching founder backgrounds & pedigree scoring' },
+  { step: 4, label: 'NYC Address Search', description: 'Deep search for exact NYC office address' },
+  { step: 5, label: 'Recent News', description: 'Searching for recent office/lease news' },
+  { step: 6, label: 'Hiring Intelligence', description: 'Scraping careers page with Firecrawl for job listings' },
+  { step: 7, label: 'Outreach Email', description: 'Generating personalized cold email' },
+  { step: 8, label: 'Prospect Scorecard', description: 'Calculating funding, investor & founder scores' },
 ];
 
 const STORAGE_KEYS = {
@@ -274,6 +276,14 @@ export function saveDossierToCompany(companyId, dossier) {
       : companies[index].keyContacts,
     // Links
     linkedinUrl: dossier.company?.linkedinUrl || companies[index].linkedin,
+    // Prospect Scorecard
+    prospectScore: dossier.scorecard?.prospectScore ?? companies[index].prospectScore,
+    fundingScore: dossier.scorecard?.funding?.score ?? companies[index].fundingScore,
+    investorScore: dossier.scorecard?.investor?.score ?? companies[index].investorScore,
+    founderScore: dossier.scorecard?.founder?.score ?? companies[index].founderScore,
+    scorecard: dossier.scorecard || companies[index].scorecard,
+    // Founder Profiles
+    founderProfiles: dossier.founderProfiles || companies[index].founderProfiles,
     // Research metadata
     lastResearchedAt: now,
     lastDossier: dossier,  // Store full dossier for reference
@@ -838,7 +848,7 @@ export async function runResearchAgent(domain, onProgress) {
   const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
 
   // Notify progress
-  if (onProgress) onProgress({ step: 1, total: 6, message: 'Starting research agent...' });
+  if (onProgress) onProgress({ step: 1, total: 8, message: 'Starting research agent...' });
 
   const response = await fetch(`${proxyUrl}/agent`, {
     method: 'POST',
@@ -861,7 +871,7 @@ export async function runResearchAgent(domain, onProgress) {
     throw new Error(dossier.error);
   }
 
-  if (onProgress) onProgress({ step: 6, total: 6, message: 'Research complete!' });
+  if (onProgress) onProgress({ step: 8, total: 8, message: 'Research complete!' });
 
   return dossier;
 }
