@@ -70,6 +70,18 @@ export default {
 
         await Promise.allSettled(tasks);
 
+        // If no NYC address found, do a follow-up search specifically for NYC address
+        if (perplexityApiKey && (!results.nycAddress || results.nycAddress === '' || results.nycAddress === 'Unknown')) {
+          try {
+            const companyName = results.companyName || domain.split('.')[0];
+            const addressData = await fetchNYCAddress(companyName, domain, perplexityApiKey);
+            if (addressData.nycAddress && addressData.nycAddress !== 'Unknown') {
+              results.nycAddress = addressData.nycAddress;
+              if (addressData.nycOfficeConfirmed) results.nycOfficeConfirmed = addressData.nycOfficeConfirmed;
+            }
+          } catch {}
+        }
+
         return jsonResponse(results);
       }
 
@@ -127,6 +139,40 @@ If unsure about a field leave it as empty string. Return ONLY the JSON object, n
         },
       ],
       max_tokens: 600,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Perplexity ${response.status}`);
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  return {};
+}
+
+async function fetchNYCAddress(companyName, domain, apiKey) {
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-sonar-small-128k-online',
+      messages: [
+        {
+          role: 'user',
+          content: `What is the NYC office address for the company "${companyName}" (website: ${domain})? Search for their New York City office location, Manhattan address, or NYC headquarters.
+
+Return ONLY valid JSON: {"nycAddress": "full street address or empty string if not found", "nycOfficeConfirmed": "Yes or No"}
+
+If you cannot find a confirmed NYC office address, return empty strings. Do not guess.`,
+        },
+      ],
+      max_tokens: 150,
     }),
   });
 
