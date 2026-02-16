@@ -1288,6 +1288,8 @@ function MasterList() {
     agentStatus: '',
     employeeRange: '',
     fundingRange: '',
+    fundingAmountMin: '',
+    fundingAmountMax: '',
   });
   const [agentProgress, setAgentProgress] = useState(null);
   const [agentDossier, setAgentDossier] = useState(null);
@@ -1524,6 +1526,19 @@ function MasterList() {
       if (filters.fundingRange === '<10M' && funding >= 10000000) return false;
       if (filters.fundingRange === '10M-50M' && (funding < 10000000 || funding > 50000000)) return false;
       if (filters.fundingRange === '50M+' && funding < 50000000) return false;
+    }
+
+    // Funding amount (lastFundingAmount) min/max filter
+    if (filters.fundingAmountMin || filters.fundingAmountMax) {
+      const amount = parseFundingAmount(company.lastFundingAmount);
+      if (filters.fundingAmountMin) {
+        const min = parseFloat(filters.fundingAmountMin) * 1000000;
+        if (amount < min) return false;
+      }
+      if (filters.fundingAmountMax) {
+        const max = parseFloat(filters.fundingAmountMax) * 1000000;
+        if (amount > max) return false;
+      }
     }
 
     return true;
@@ -1776,6 +1791,32 @@ function MasterList() {
                 <option value="50M+">$50M+</option>
               </select>
 
+              {/* Funding Amount Min/Max */}
+              <div className="funding-amount-filter">
+                <span className="funding-amount-label">Last Funding ($M)</span>
+                <div className="funding-amount-inputs">
+                  <input
+                    type="number"
+                    className="funding-amount-input"
+                    placeholder="Min"
+                    value={filters.fundingAmountMin}
+                    onChange={(e) => setFilters(f => ({ ...f, fundingAmountMin: e.target.value }))}
+                    min="0"
+                    step="0.5"
+                  />
+                  <span className="funding-amount-separator">&ndash;</span>
+                  <input
+                    type="number"
+                    className="funding-amount-input"
+                    placeholder="Max"
+                    value={filters.fundingAmountMax}
+                    onChange={(e) => setFilters(f => ({ ...f, fundingAmountMax: e.target.value }))}
+                    min="0"
+                    step="0.5"
+                  />
+                </div>
+              </div>
+
               {/* Agent Status */}
               <select
                 value={filters.agentStatus}
@@ -1803,6 +1844,7 @@ function MasterList() {
                 onClick={() => setFilters({
                   prospectStatus: '', nycOffice: '', fundingStage: '',
                   companyStatus: '', agentStatus: '', employeeRange: '', fundingRange: '',
+                  fundingAmountMin: '', fundingAmountMax: '',
                 })}
               >
                 Clear Filters
