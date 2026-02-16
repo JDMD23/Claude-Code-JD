@@ -200,31 +200,22 @@ async function fetchNYCAddress(companyName, domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `Find the NYC office address and careers page for "${companyName}" (${domain}).
+          content: `What is the New York City office address for ${companyName}? Their website is ${domain}.
 
-SEARCH THESE SOURCES FOR ADDRESS:
-1. site:${domain} "New York" address (check their website contact/about page)
-2. site:${domain}/terms OR site:${domain}/privacy (legal pages often have registered addresses)
-3. "${companyName}" LinkedIn company page location
-4. "${companyName}" Google Maps New York
-5. "${companyName}" NYC office job posting location
-6. "${companyName}" WeWork OR "${companyName}" coworking NYC
+Search for:
+- Their office location on their website's contact page, about page, or footer
+- Their address listed on their terms of service or privacy policy page
+- Their LinkedIn company page which shows office locations
+- Job postings from ${companyName} that mention a NYC office address
+- News articles about ${companyName} opening or having a NYC office
 
-SEARCH THESE FOR CAREERS PAGE:
-1. site:${domain}/careers OR site:${domain}/jobs
-2. "${companyName}" careers greenhouse OR ashby OR lever OR wellfound
+Also find their careers page URL.
 
-Return ONLY this JSON:
-{
-  "nycAddress": "exact street address like '123 Broadway, Floor 10, New York, NY 10001' or empty string if not found",
-  "nycOfficeConfirmed": "Yes or No",
-  "careersUrl": "URL to their careers/jobs page"
-}
-
-IMPORTANT: I need a real street address with building number and zip code. Do NOT return just "New York" or "Manhattan".`,
+Respond with JSON only:
+{"nycAddress": "full street address with zip code, or empty if not found", "nycOfficeConfirmed": "Yes or No", "careersUrl": "careers page URL"}`,
         },
       ],
-      max_tokens: 250,
+      max_tokens: 300,
     }),
   });
 
