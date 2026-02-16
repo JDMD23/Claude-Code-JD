@@ -18,8 +18,10 @@ function getDaysInStage(deal) {
   return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Get color based on days in stage
-function getStageColor(days) {
+// Get color based on days in stage (or stage type)
+function getStageColor(days, stage) {
+  // Special stages always use gray
+  if (stage === 'on_hold' || stage === 'lost') return 'gray';
   if (days < 14) return 'green';
   if (days <= 30) return 'yellow';
   return 'red';
@@ -41,7 +43,7 @@ function DealCard({ deal, onClick, onInlineSave }) {
   };
 
   const daysInStage = getDaysInStage(deal);
-  const stageColor = getStageColor(daysInStage);
+  const stageColor = getStageColor(daysInStage, deal.stage);
 
   const handleInlineSave = (e) => {
     e.stopPropagation();
@@ -134,7 +136,7 @@ function KanbanColumn({ stage, deals, onCardClick, onInlineSave }) {
   const stageDeals = deals.filter(d => d.stage === stage.id);
 
   return (
-    <div className="kanban-column">
+    <div className="kanban-column" data-stage={stage.id}>
       <div className="kanban-header">
         <h4>{stage.name}</h4>
         <span className="deal-count">{stageDeals.length}</span>

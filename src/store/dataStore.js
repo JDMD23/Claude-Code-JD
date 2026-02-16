@@ -50,6 +50,8 @@ export const DEAL_STAGES = [
   { id: 'negotiation', name: 'Lease Negotiation' },
   { id: 'consent', name: 'Consent' },
   { id: 'closed', name: 'Closed' },
+  { id: 'on_hold', name: 'On Hold' },
+  { id: 'lost', name: 'Lost' },
 ];
 
 // Prospect CRM Stages
@@ -66,6 +68,8 @@ export const COMMISSION_STATUSES = [
   { id: 'projected', name: 'Projected' },
   { id: 'in_contract', name: 'In Contract' },
   { id: 'closed', name: 'Closed' },
+  { id: 'invoice_sent', name: 'Invoice Sent' },
+  { id: 'overdue', name: 'Overdue' },
   { id: 'paid', name: 'Paid' },
 ];
 

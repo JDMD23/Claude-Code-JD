@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, Plus, TrendingUp, X, Building2, Calendar, Percent, FileText, Trash2, Edit2 } from 'lucide-react';
+import { DollarSign, Plus, TrendingUp, X, Building2, Calendar, Percent, FileText, Trash2, Edit2, Send, AlertTriangle } from 'lucide-react';
 import { getCommissions, saveCommission, deleteCommission, getDeals, COMMISSION_STATUSES, DEAL_STAGES } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
@@ -251,6 +251,12 @@ function Commissions() {
     closed: commissions
       .filter(c => c.status === 'closed')
       .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0),
+    invoiceSent: commissions
+      .filter(c => c.status === 'invoice_sent')
+      .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0),
+    overdue: commissions
+      .filter(c => c.status === 'overdue')
+      .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0),
     paid: commissions
       .filter(c => c.status === 'paid')
       .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0),
@@ -314,9 +320,21 @@ function Commissions() {
           </div>
           <div className="stat-content">
             <p className="stat-label">Closed (Unpaid)</p>
-            <p className="stat-value">{formatCurrency(stats.closed)}</p>
+            <p className="stat-value">{formatCurrency(stats.closed + stats.invoiceSent)}</p>
           </div>
         </div>
+
+        {stats.overdue > 0 && (
+          <div className="stat-card">
+            <div className="stat-icon" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-red)' }}>
+              <AlertTriangle size={24} />
+            </div>
+            <div className="stat-content">
+              <p className="stat-label">Overdue</p>
+              <p className="stat-value" style={{ color: 'var(--status-red)' }}>{formatCurrency(stats.overdue)}</p>
+            </div>
+          </div>
+        )}
 
         <div className="stat-card">
           <div className="stat-icon teal">

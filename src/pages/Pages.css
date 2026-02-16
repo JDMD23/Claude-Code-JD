@@ -381,6 +381,16 @@
   color: var(--accent-teal);
 }
 
+.status-badge.status-invoice_sent {
+  background-color: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+}
+
+.status-badge.status-overdue {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: var(--status-red);
+}
+
 /* Row Actions */
 .row-actions {
   display: flex;

@@ -61,6 +61,33 @@
   background-color: var(--status-red);
 }
 
+.stage-indicator.gray {
+  background-color: var(--text-muted);
+}
+
+/* On Hold column styling */
+.kanban-column[data-stage="on_hold"] {
+  opacity: 0.85;
+  background-color: var(--bg-tertiary);
+}
+
+.kanban-column[data-stage="on_hold"] .kanban-header {
+  background-color: rgba(100, 116, 139, 0.1);
+}
+
+/* Lost column styling */
+.kanban-column[data-stage="lost"] {
+  opacity: 0.7;
+}
+
+.kanban-column[data-stage="lost"] .kanban-header {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.kanban-column[data-stage="lost"] .deal-card {
+  opacity: 0.8;
+}
+
 .deal-client {
   font-size: 0.9rem;
   font-weight: 600;
