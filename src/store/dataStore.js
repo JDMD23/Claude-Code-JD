@@ -17,6 +17,7 @@ const STORAGE_KEYS = {
   MASTER_LIST: 'dealflow_master_list',
   COMMISSIONS: 'dealflow_commissions',
   FOLLOWUPS: 'dealflow_followups',
+  CONTACTS: 'dealflow_contacts',
   ACTIVITY_LOG: 'dealflow_activity',
   LEASES: 'dealflow_leases',
   SETTINGS: 'dealflow_settings',
@@ -212,12 +213,13 @@ export function saveDossierToCompany(companyId, dossier) {
   }
 
   const now = new Date().toISOString();
+  const companyName = dossier.company?.companyName || companies[index].organizationName;
 
   // Merge dossier data into company record
   companies[index] = {
     ...companies[index],
     // Company overview
-    organizationName: dossier.company?.companyName || companies[index].organizationName,
+    organizationName: companyName,
     description: dossier.company?.description || companies[index].description,
     industry: dossier.company?.industry || companies[index].industry,
     foundedDate: dossier.company?.founded || companies[index].foundedDate,
@@ -249,8 +251,35 @@ export function saveDossierToCompany(companyId, dossier) {
     updatedAt: now,
   };
 
+  // Create Contact records from dossier contacts
+  if (dossier.contacts?.length > 0) {
+    const existingContacts = getContacts();
+
+    dossier.contacts.forEach(contact => {
+      // Check if contact already exists (by email or name+company)
+      const exists = existingContacts.some(c =>
+        (contact.email && c.email === contact.email) ||
+        (c.companyId === companyId && c.name === contact.name)
+      );
+
+      if (!exists) {
+        saveContact({
+          companyId: companyId,
+          companyName: companyName,
+          name: contact.name,
+          title: contact.title || '',
+          email: contact.email || '',
+          phone: contact.phone || '',
+          linkedin: contact.linkedin || '',
+          source: 'research_agent',
+          notes: '',
+        });
+      }
+    });
+  }
+
   saveData(STORAGE_KEYS.MASTER_LIST, companies);
-  logActivity('dossier_saved', `Research dossier saved for ${companies[index].organizationName}`);
+  logActivity('dossier_saved', `Research dossier saved for ${companyName}`);
 
   return companies;
 }
@@ -410,6 +439,59 @@ export function deleteCommission(commissionId) {
   const commissions = getCommissions().filter(c => c.id !== commissionId);
   saveData(STORAGE_KEYS.COMMISSIONS, commissions);
   return commissions;
+}
+
+// ============ CONTACTS ============
+export function getContacts() {
+  return loadData(STORAGE_KEYS.CONTACTS, []);
+}
+
+export function saveContact(contact) {
+  const contacts = getContacts();
+  const now = new Date().toISOString();
+
+  if (contact.id) {
+    const index = contacts.findIndex(c => c.id === contact.id);
+    if (index !== -1) {
+      contacts[index] = { ...contacts[index], ...contact, updatedAt: now };
+    }
+  } else {
+    contacts.push({
+      ...contact,
+      id: uuidv4(),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  return contacts;
+}
+
+export function getContactsByCompany(companyId) {
+  return getContacts().filter(c => c.companyId === companyId);
+}
+
+export function deleteContact(contactId) {
+  const contacts = getContacts().filter(c => c.id !== contactId);
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  return contacts;
+}
+
+// Create follow-up from contact
+export function createFollowUpFromContact(contact, note, dueDate) {
+  const followUp = {
+    contactId: contact.id,
+    companyId: contact.companyId,
+    companyName: contact.companyName,
+    contactName: contact.name,
+    contactEmail: contact.email,
+    contactTitle: contact.title,
+    note: note || `Follow up with ${contact.name}`,
+    dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 1 week
+  };
+
+  return saveFollowUp(followUp);
 }
 
 // ============ FOLLOW-UPS ============

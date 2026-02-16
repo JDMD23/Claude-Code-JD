@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS, saveDossierToCompany } from '../store/dataStore';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus } from 'lucide-react';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -512,6 +512,7 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany }) {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [followUpCreated, setFollowUpCreated] = useState({});
 
   if (!dossier) return null;
 
@@ -533,6 +534,25 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany }) {
       alert('Error saving: ' + (err.message || 'Unknown error'));
     }
     setSaving(false);
+  };
+
+  const handleCreateFollowUp = (contact, idx) => {
+    // Get company name from dossier
+    const companyName = dossier.company?.companyName || dossier.domain;
+
+    // Create contact object for follow-up
+    const contactData = {
+      id: `dossier-${idx}`,
+      companyId: companyId,
+      companyName: companyName,
+      name: contact.name,
+      title: contact.title,
+      email: contact.email || '',
+      linkedin: contact.linkedin || '',
+    };
+
+    createFollowUpFromContact(contactData, `Reach out to ${contact.name} (${contact.title}) at ${companyName}`);
+    setFollowUpCreated(prev => ({ ...prev, [idx]: true }));
   };
 
   return (
@@ -639,13 +659,31 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany }) {
               <div className="contacts-list">
                 {dossier.contacts.map((contact, idx) => (
                   <div key={idx} className="contact-card">
-                    <div className="contact-name">{contact.name}</div>
-                    <div className="contact-title">{contact.title}</div>
-                    {contact.linkedin && (
-                      <a href={contact.linkedin} target="_blank" rel="noopener noreferrer" className="contact-linkedin">
-                        LinkedIn <ExternalLink size={12} />
-                      </a>
-                    )}
+                    <div className="contact-info">
+                      <div className="contact-name">{contact.name}</div>
+                      <div className="contact-title">{contact.title}</div>
+                      {contact.linkedin && (
+                        <a href={contact.linkedin} target="_blank" rel="noopener noreferrer" className="contact-linkedin">
+                          LinkedIn <ExternalLink size={12} />
+                        </a>
+                      )}
+                    </div>
+                    <div className="contact-actions">
+                      {followUpCreated[idx] ? (
+                        <span className="followup-created">
+                          <CheckCircle size={14} strokeWidth={2} /> Follow-up created
+                        </span>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-xs"
+                          onClick={() => handleCreateFollowUp(contact, idx)}
+                          title="Create follow-up reminder"
+                        >
+                          <CalendarPlus size={14} strokeWidth={1.5} />
+                          Follow-up
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

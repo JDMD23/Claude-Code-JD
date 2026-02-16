@@ -449,8 +449,8 @@
 /* Contacts List */
 .contacts-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.625rem;
 }
 
 .contact-card {
@@ -458,7 +458,15 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 0.75rem;
-  min-width: 180px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.contact-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .contact-name {
@@ -485,6 +493,28 @@
 
 .contact-linkedin:hover {
   text-decoration: underline;
+}
+
+.contact-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-xs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  gap: 0.25rem;
+}
+
+.followup-created {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--status-green);
+  font-weight: 500;
 }
 
 /* News List */
