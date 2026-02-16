@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText } from 'lucide-react';
-import { DndContext, closestCenter, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, useDroppable, rectIntersection } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES } from '../store/dataStore';
@@ -28,6 +28,7 @@ function getStageColor(days) {
 function DealCard({ deal, onClick }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
+    data: { type: 'card', stage: deal.stage },
   });
 
   const style = {
@@ -80,19 +81,30 @@ function DealCard({ deal, onClick }) {
   );
 }
 
-// Droppable Column Component
+// Droppable Column wrapper
+function DroppableColumn({ id, children }) {
+  const { isOver, setNodeRef } = useDroppable({ id, data: { type: 'column' } });
+
+  return (
+    <div ref={setNodeRef} className={`kanban-column ${isOver ? 'column-drag-over' : ''}`}>
+      {children}
+    </div>
+  );
+}
+
+// Kanban Column Component
 function KanbanColumn({ stage, deals, onCardClick }) {
   const stageDeals = deals.filter(d => d.stage === stage.id);
 
   return (
-    <div className="kanban-column">
+    <DroppableColumn id={stage.id}>
       <div className="kanban-header">
         <h4>{stage.name}</h4>
         <span className="deal-count">{stageDeals.length}</span>
       </div>
 
       <SortableContext items={stageDeals.map(d => d.id)} strategy={verticalListSortingStrategy}>
-        <div className="kanban-cards" data-stage={stage.id}>
+        <div className="kanban-cards">
           {stageDeals.length === 0 ? (
             <div className="empty-column">
               <p>No deals</p>
@@ -104,7 +116,7 @@ function KanbanColumn({ stage, deals, onCardClick }) {
           )}
         </div>
       </SortableContext>
-    </div>
+    </DroppableColumn>
   );
 }
 
@@ -319,29 +331,18 @@ function DealPipeline() {
     const activeId = active.id;
     const overId = over.id;
 
-    // Find which column the card was dropped on
-    const overElement = document.querySelector(`[data-stage]`);
+    // Determine target stage
     let newStage = null;
 
-    // Check if dropped on a column
-    const columns = document.querySelectorAll('[data-stage]');
-    columns.forEach(col => {
-      const rect = col.getBoundingClientRect();
-      const mouseEvent = event.activatorEvent;
-      if (mouseEvent) {
-        // Check last known position from the drag event
-      }
-    });
-
-    // Find the stage of the item we're dropping over, or the column itself
-    const overDeal = deals.find(d => d.id === overId);
-    if (overDeal) {
-      newStage = overDeal.stage;
+    // Check if dropped directly on a column (droppable)
+    const stageMatch = DEAL_STAGES.find(s => s.id === overId);
+    if (stageMatch) {
+      newStage = stageMatch.id;
     } else {
-      // Check if overId matches a stage
-      const stageMatch = DEAL_STAGES.find(s => s.id === overId);
-      if (stageMatch) {
-        newStage = stageMatch.id;
+      // Dropped on a card — find which stage that card belongs to
+      const overDeal = deals.find(d => d.id === overId);
+      if (overDeal) {
+        newStage = overDeal.stage;
       }
     }
 
@@ -351,18 +352,6 @@ function DealPipeline() {
         const updated = updateDealStage(activeId, newStage);
         setDeals(updated);
       }
-    }
-  };
-
-  const handleDragOver = (event) => {
-    const { over } = event;
-    if (!over) return;
-
-    // Find stage from the container
-    const container = over.id;
-    const stageEl = document.querySelector(`[data-stage="${container}"]`);
-    if (stageEl) {
-      // Highlight the column
     }
   };
 
@@ -407,10 +396,9 @@ function DealPipeline() {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={rectIntersection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onDragOver={handleDragOver}
       >
         <div className="kanban-board">
           {DEAL_STAGES.map(stage => (

@@ -6,6 +6,7 @@ import {
   Database,
   FileText,
   DollarSign,
+  Settings,
   ChevronLeft,
   ChevronRight,
   Building2
@@ -20,6 +21,7 @@ const navItems = [
   { path: '/master-list', icon: Database, label: 'Master List' },
   { path: '/lease-intelligence', icon: FileText, label: 'Lease Intelligence' },
   { path: '/commissions', icon: DollarSign, label: 'Commissions' },
+  { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 function Sidebar() {

@@ -6,9 +6,20 @@ const STORAGE_KEYS = {
   PROSPECTS: 'dealflow_prospects',
   MASTER_LIST: 'dealflow_master_list',
   COMMISSIONS: 'dealflow_commissions',
+  CONTACTS: 'dealflow_contacts',
   FOLLOWUPS: 'dealflow_followups',
   ACTIVITY_LOG: 'dealflow_activity',
-  LEASES: 'dealflow_leases',
+  SETTINGS: 'dealflow_settings',
+};
+
+const DEFAULT_SETTINGS = {
+  proxyUrl: '',
+  proxySecret: '',
+  perplexityApiKey: '',
+  apolloApiKey: '',
+  tavilyApiKey: '',
+  firecrawlApiKey: '',
+  autoEnrich: false,
 };
 
 // Helper to load from localStorage
@@ -57,6 +68,17 @@ export const COMMISSION_STATUSES = [
   { id: 'closed', name: 'Closed' },
   { id: 'paid', name: 'Paid' },
 ];
+
+// ============ SETTINGS ============
+export function getSettings() {
+  return loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+}
+
+export function saveSettings(settings) {
+  const merged = { ...DEFAULT_SETTINGS, ...settings };
+  saveData(STORAGE_KEYS.SETTINGS, merged);
+  return merged;
+}
 
 // ============ DEALS ============
 export function getDeals() {
@@ -163,6 +185,41 @@ export function addToMasterList(companies) {
   saveData(STORAGE_KEYS.MASTER_LIST, updated);
   logActivity('companies_imported', `${added.length} companies imported to Master List (${skipped} duplicates skipped)`);
   return { companies: updated, added: added.length, skipped };
+}
+
+export function deleteCompaniesFromMasterList(companyIds) {
+  const idSet = new Set(companyIds);
+  const companies = getMasterList().filter(c => !idSet.has(c.id));
+  saveData(STORAGE_KEYS.MASTER_LIST, companies);
+
+  // Cascading delete: contacts and follow-ups tied to these companies
+  const contacts = getContacts().filter(c => !idSet.has(c.companyId));
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  const followUps = getFollowUps().filter(f => !idSet.has(f.companyId));
+  saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
+
+  logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
+  return companies;
+}
+
+// ============ CONTACTS ============
+export function getContacts() {
+  return loadData(STORAGE_KEYS.CONTACTS, []);
+}
+
+export function saveContact(contact) {
+  const contacts = getContacts();
+  const now = new Date().toISOString();
+
+  if (contact.id && contacts.find(c => c.id === contact.id)) {
+    const index = contacts.findIndex(c => c.id === contact.id);
+    contacts[index] = { ...contacts[index], ...contact, updatedAt: now };
+  } else {
+    contacts.push({ ...contact, id: contact.id || uuidv4(), addedAt: now, updatedAt: now });
+  }
+
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  return contacts;
 }
 
 // ============ PROSPECTS ============
@@ -341,38 +398,111 @@ export function logActivity(type, message) {
   return trimmed;
 }
 
-// ============ LEASES ============
-export function getLeases() {
-  return loadData(STORAGE_KEYS.LEASES, []);
+// ============ RESEARCH AGENT ============
+function getProxyHeaders() {
+  const settings = getSettings();
+  const headers = { 'Content-Type': 'application/json' };
+  if (settings.proxySecret) {
+    headers['Authorization'] = `Bearer ${settings.proxySecret}`;
+  }
+  return headers;
 }
 
-export function saveLease(lease) {
-  const leases = getLeases();
-  const now = new Date().toISOString();
+export async function enrichCompany(domain) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
 
-  if (lease.id) {
-    const index = leases.findIndex(l => l.id === lease.id);
-    if (index !== -1) {
-      leases[index] = { ...leases[index], ...lease, updatedAt: now };
+  const res = await fetch(`${settings.proxyUrl}/enrich`, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: JSON.stringify({ domain }),
+  });
+
+  if (!res.ok) throw new Error(`Enrich failed: ${res.status}`);
+  return res.json();
+}
+
+export async function runResearchAgent(domain, onProgress = () => {}, companyData = {}) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
+
+  const csvData = {
+    organizationName: companyData.organizationName,
+    description: companyData.description,
+    founders: companyData.founders,
+    topInvestors: companyData.topInvestors,
+    leadInvestors: companyData.leadInvestors,
+    totalFunding: companyData.totalFunding,
+    lastFundingAmount: companyData.lastFundingAmount,
+    lastFundingType: companyData.lastFundingType,
+    lastFundingDate: companyData.lastFundingDate,
+    foundedYear: companyData.foundedYear,
+    headquarters: companyData.headquarters,
+    industries: companyData.industries,
+    linkedin: companyData.linkedin,
+    crunchbaseUrl: companyData.crunchbaseUrl,
+    employeeCount: companyData.employeeCount,
+    cbRank: companyData.cbRank,
+    fundingRounds: companyData.fundingRounds,
+  };
+
+  const res = await fetch(`${settings.proxyUrl}/agent`, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: JSON.stringify({ domain, csvData }),
+  });
+
+  if (!res.ok) throw new Error(`Agent failed: ${res.status}`);
+
+  // Handle streaming progress
+  const reader = res.body?.getReader();
+  if (!reader) return res.json();
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') continue;
+
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'progress') {
+          onProgress(parsed);
+        } else if (parsed.type === 'result') {
+          finalResult = parsed.data;
+        }
+      } catch {
+        // skip unparseable lines
+      }
     }
-  } else {
-    leases.push({
-      ...lease,
-      id: uuidv4(),
-      uploadedAt: now,
-      status: 'ready',
-    });
-    logActivity('lease_uploaded', `Lease document uploaded: ${lease.name}`);
   }
 
-  saveData(STORAGE_KEYS.LEASES, leases);
-  return leases;
+  return finalResult;
 }
 
-export function deleteLease(leaseId) {
-  const leases = getLeases().filter(l => l.id !== leaseId);
-  saveData(STORAGE_KEYS.LEASES, leases);
-  return leases;
+export async function sendChatMessage(messages) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
+
+  const res = await fetch(`${settings.proxyUrl}/chat`, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: JSON.stringify({ messages }),
+  });
+
+  if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
+  return res.json();
 }
 
 // ============ DASHBOARD STATS ============

@@ -21,6 +21,11 @@
   border-color: var(--accent-primary);
 }
 
+.column-drag-over {
+  background-color: rgba(59, 130, 246, 0.05);
+  border-color: var(--accent-primary);
+}
+
 .deal-card-header {
   display: flex;
   justify-content: space-between;

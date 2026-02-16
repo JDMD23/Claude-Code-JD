@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES } from '../store/dataStore';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, ChevronLeft, ChevronRight, Play, Loader, Plus, Globe, Newspaper, Mail, Copy, UserCheck, MapPin, Award } from 'lucide-react';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, runResearchAgent, getSettings } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
+
+const PAGE_SIZE = 50;
 
 // Get domain from website URL for Clearbit logo
 function getDomain(website) {
@@ -21,7 +23,6 @@ function CompanyLogo({ website, name, size = 32 }) {
   const domain = getDomain(website);
 
   if (!domain || hasError) {
-    // Fallback: show first letter of company name
     return (
       <div
         className="company-logo-fallback"
@@ -66,7 +67,6 @@ function parseCSV(text) {
   const lines = text.split('\n').filter(line => line.trim());
   if (lines.length < 2) return [];
 
-  // Parse header - handle quoted fields
   const parseRow = (row) => {
     const result = [];
     let current = '';
@@ -163,9 +163,13 @@ function mapCompanyData(rawData) {
   }));
 }
 
-// Company Detail Modal
-function CompanyModal({ company, onClose }) {
+// Unified Company Profile Modal with tabs
+function CompanyModal({ company, onClose, onRunAgent, agentStatus }) {
+  const [activeTab, setActiveTab] = useState('overview');
+
   if (!company) return null;
+
+  const dossier = company.dossier || {};
 
   const InfoRow = ({ label, value, isLink }) => {
     if (!value) return null;
@@ -183,6 +187,16 @@ function CompanyModal({ company, onClose }) {
     );
   };
 
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: Building2 },
+    { id: 'funding', label: 'Funding & Investors', icon: DollarSign },
+    { id: 'team', label: 'Team', icon: Users },
+    { id: 'nyc', label: 'NYC Intel', icon: MapPin },
+    { id: 'hiring', label: 'Hiring', icon: Briefcase },
+    { id: 'news', label: 'News', icon: Newspaper },
+    { id: 'outreach', label: 'Outreach', icon: Mail },
+  ];
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-large" onClick={e => e.stopPropagation()}>
@@ -191,61 +205,187 @@ function CompanyModal({ company, onClose }) {
             <CompanyLogo website={company.website} name={company.organizationName} size={48} />
             <div>
               <h2>{company.organizationName}</h2>
-              {company.prospectStatus && (
-                <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                  {company.prospectStatus}
-                </span>
-              )}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
+                {company.prospectStatus && (
+                  <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
+                    {company.prospectStatus}
+                  </span>
+                )}
+                {company.cbRank && (
+                  <span className="prospect-badge low">CB Rank: {company.cbRank}</span>
+                )}
+              </div>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose}>
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {onRunAgent && (
+              <button
+                className="btn btn-secondary"
+                onClick={(e) => { e.stopPropagation(); onRunAgent(company); }}
+                disabled={agentStatus === 'running'}
+                style={{ fontSize: '0.8rem', padding: '0.375rem 0.75rem' }}
+              >
+                {agentStatus === 'running' ? <Loader size={14} className="spinning" /> : <Play size={14} />}
+                {agentStatus === 'running' ? 'Researching...' : 'Run Agent'}
+              </button>
+            )}
+            <button className="modal-close" onClick={onClose}>
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="profile-tabs">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`profile-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <tab.icon size={14} style={{ marginRight: '0.25rem' }} />
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         <div className="modal-body">
-          <div className="info-section">
-            <h4><Building2 size={16} /> Company Info</h4>
-            <InfoRow label="Website" value={company.website} isLink />
-            <InfoRow label="LinkedIn" value={company.linkedin} isLink />
-            <InfoRow label="Founded" value={company.foundedDate} />
-            <InfoRow label="Description" value={company.description} />
-            <InfoRow label="NYC Address" value={company.nycAddress} />
-            <InfoRow label="NYC Office Confirmed" value={company.nycOfficeConfirmed} />
-          </div>
+          {activeTab === 'overview' && (
+            <div>
+              <InfoRow label="Website" value={company.website} isLink />
+              <InfoRow label="LinkedIn" value={company.linkedin} isLink />
+              <InfoRow label="Crunchbase" value={company.crunchbaseUrl} isLink />
+              <InfoRow label="Description" value={company.description || dossier.description} />
+              <InfoRow label="Industries" value={company.industries} />
+              <InfoRow label="Headquarters" value={company.headquarters || dossier.headquarters} />
+              <InfoRow label="Founded" value={company.foundedYear} />
+              <InfoRow label="Employees" value={company.employeeCount || dossier.employeeCount} />
+              <InfoRow label="CB Rank" value={company.cbRank} />
+            </div>
+          )}
 
-          <div className="info-section">
-            <h4><Users size={16} /> Team & Hiring</h4>
-            <InfoRow label="Employee Count" value={company.employeeCount} />
-            <InfoRow label="Headcount Filter" value={company.headcountFilter} />
-            <InfoRow label="Total Jobs" value={company.totalJobs} />
-            <InfoRow label="NYC Jobs" value={company.nycJobs} />
-            <InfoRow label="Remote Jobs" value={company.remoteJobs} />
-            <InfoRow label="Hybrid Jobs" value={company.hybridJobs} />
-            <InfoRow label="In-Office Jobs" value={company.inOfficeJobs} />
-            <InfoRow label="Departments Hiring" value={company.departmentsHiring} />
-            <InfoRow label="Work Policy" value={company.workPolicyQuote} />
-            <InfoRow label="Careers Page" value={company.careersUrl} isLink />
-          </div>
+          {activeTab === 'funding' && (
+            <div>
+              <div className="info-section">
+                <h4><DollarSign size={16} /> Funding Details</h4>
+                <InfoRow label="Total Funding" value={company.totalFunding} />
+                <InfoRow label="Last Amount" value={company.lastFundingAmount} />
+                <InfoRow label="Last Type" value={company.lastFundingType} />
+                <InfoRow label="Last Date" value={company.lastFundingDate} />
+                <InfoRow label="Rounds" value={company.fundingRounds} />
+              </div>
+              <div className="info-section">
+                <h4><Award size={16} /> Investors</h4>
+                <InfoRow label="Top 5" value={company.topInvestors} />
+                <InfoRow label="Lead" value={company.leadInvestors} />
+                {dossier.investorScore !== undefined && (
+                  <InfoRow label="Investor Score" value={`${dossier.investorScore}/3`} />
+                )}
+              </div>
+            </div>
+          )}
 
-          <div className="info-section">
-            <h4><DollarSign size={16} /> Funding</h4>
-            <InfoRow label="Total Funding" value={company.totalFunding ? `$${parseInt(company.totalFunding).toLocaleString()}` : ''} />
-            <InfoRow label="Last Funding Amount" value={company.lastFundingAmount ? `$${parseInt(company.lastFundingAmount).toLocaleString()}` : ''} />
-            <InfoRow label="Last Funding Type" value={company.lastFundingType} />
-            <InfoRow label="Last Funding Date" value={company.lastFundingDate} />
-            <InfoRow label="Funding Rounds" value={company.fundingRounds} />
-            <InfoRow label="Top Investors" value={company.topInvestors} />
-            <InfoRow label="Funding in Range" value={company.fundingInRange} />
-            <InfoRow label="Funding Stage OK" value={company.fundingStageOK} />
-          </div>
+          {activeTab === 'team' && (
+            <div>
+              <div className="info-section">
+                <h4><UserCheck size={16} /> Founders</h4>
+                {company.founders ? (
+                  <InfoRow label="Founders" value={company.founders} />
+                ) : (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No founder data. Run the research agent to discover founders.</p>
+                )}
+                {dossier.founders && dossier.founders.length > 0 && (
+                  dossier.founders.map((f, i) => (
+                    <div key={i} style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                      <div style={{ fontWeight: 600 }}>{f.name}</div>
+                      {f.title && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{f.title}</div>}
+                      {f.linkedin && <InfoRow label="LinkedIn" value={f.linkedin} isLink />}
+                      {f.background && <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', color: 'var(--text-secondary)' }}>{f.background}</div>}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="info-section">
+                <h4><Users size={16} /> Decision Makers</h4>
+                {dossier.decisionMakers && dossier.decisionMakers.length > 0 ? (
+                  dossier.decisionMakers.map((dm, i) => (
+                    <div key={i} style={{ marginBottom: '0.5rem' }}>
+                      <InfoRow label={dm.title || 'Contact'} value={`${dm.name}${dm.email ? ` - ${dm.email}` : ''}`} />
+                    </div>
+                  ))
+                ) : (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No contacts yet. Run the research agent.</p>
+                )}
+                <InfoRow label="Key Contacts" value={company.keyContacts} />
+              </div>
+            </div>
+          )}
 
-          <div className="info-section">
-            <h4><Briefcase size={16} /> Scoring & Contacts</h4>
-            <InfoRow label="Prospect Score" value={company.prospectScore} />
-            <InfoRow label="Prospect Status" value={company.prospectStatus} />
-            <InfoRow label="Key Contacts" value={company.keyContacts} />
-          </div>
+          {activeTab === 'nyc' && (
+            <div>
+              <InfoRow label="NYC Office" value={company.nycOfficeConfirmed === 'Yes' ? 'Confirmed' : company.nycOfficeConfirmed === 'No' ? 'Not confirmed' : 'Unknown'} />
+              <InfoRow label="NYC Address" value={company.nycAddress || dossier.nycAddress} />
+              <InfoRow label="Headquarters" value={company.headquarters} />
+              {dossier.nycIntel && <InfoRow label="Intel" value={dossier.nycIntel} />}
+            </div>
+          )}
+
+          {activeTab === 'hiring' && (
+            <div>
+              <InfoRow label="Headcount Filter" value={company.headcountFilter} />
+              <InfoRow label="Total Jobs" value={company.totalJobs} />
+              <InfoRow label="NYC Jobs" value={company.nycJobs} />
+              <InfoRow label="Remote Jobs" value={company.remoteJobs} />
+              <InfoRow label="Hybrid Jobs" value={company.hybridJobs} />
+              <InfoRow label="In-Office Jobs" value={company.inOfficeJobs} />
+              <InfoRow label="Departments Hiring" value={company.departmentsHiring} />
+              <InfoRow label="Work Policy" value={company.workPolicyQuote} />
+              <InfoRow label="Careers Page" value={company.careersUrl || dossier.careersUrl} isLink={!!(company.careersUrl || dossier.careersUrl)} />
+              {dossier.hiringIntel && <InfoRow label="Hiring Intel" value={dossier.hiringIntel} />}
+            </div>
+          )}
+
+          {activeTab === 'news' && (
+            <div>
+              {dossier.news && dossier.news.length > 0 ? (
+                dossier.news.map((article, i) => (
+                  <div key={i} style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                    <a href={article.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>
+                      {article.title} <ExternalLink size={12} />
+                    </a>
+                    {article.type && <span className="prospect-badge low" style={{ marginLeft: '0.5rem' }}>{article.type}</span>}
+                    {article.date && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{article.date}</div>}
+                    {article.snippet && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{article.snippet}</p>}
+                  </div>
+                ))
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No news articles. Run the research agent to find recent coverage.</p>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'outreach' && (
+            <div>
+              {dossier.outreachEmail ? (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0 }}>Generated Email</h4>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                      onClick={() => navigator.clipboard.writeText(dossier.outreachEmail)}
+                    >
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem', background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: 'var(--radius-md)', lineHeight: 1.5, fontFamily: 'inherit' }}>
+                    {dossier.outreachEmail}
+                  </pre>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No outreach email generated. Run the research agent to create one.</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -312,6 +452,9 @@ function MasterList() {
   const [showCRMModal, setShowCRMModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(0);
+  const [agentStatus, setAgentStatus] = useState(null); // null | 'running' | 'done' | 'error'
+  const [quickAddDomain, setQuickAddDomain] = useState('');
   const [filters, setFilters] = useState({
     prospectStatus: '',
     nycOffice: '',
@@ -340,6 +483,77 @@ function MasterList() {
       alert(`Imported ${added} new${skipped > 0 ? `, ${skipped} duplicates skipped` : ''}.`);
     } else {
       alert('No data found in CSV file');
+    }
+  };
+
+  // Quick Add by domain
+  const handleQuickAdd = () => {
+    const domain = quickAddDomain.trim().replace(/https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    if (!domain) return;
+
+    const companyData = {
+      organizationName: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
+      website: `https://${domain}`,
+    };
+
+    const { companies: updated, added } = addToMasterList([companyData]);
+    setCompanies(updated);
+    setQuickAddDomain('');
+
+    if (added === 0) {
+      alert('Company already exists in master list.');
+      return;
+    }
+
+    // Auto-enrich if enabled
+    const settings = getSettings();
+    if (settings.autoEnrich && settings.proxyUrl) {
+      const newCompany = updated.find(c => getDomain(c.website) === domain);
+      if (newCompany) {
+        handleRunAgent(newCompany);
+      }
+    }
+  };
+
+  // Run research agent on a company
+  const handleRunAgent = async (company) => {
+    const domain = getDomain(company.website);
+    if (!domain) {
+      alert('No website domain available for this company.');
+      return;
+    }
+
+    setAgentStatus('running');
+
+    try {
+      const result = await runResearchAgent(domain, (progress) => {
+        // Could show step-by-step progress in the UI
+        console.log('Agent progress:', progress);
+      }, company);
+
+      if (result) {
+        // Merge dossier into the company record
+        const updatedCompanies = getMasterList().map(c => {
+          if (c.id === company.id) {
+            return { ...c, dossier: result, lastResearchedAt: new Date().toISOString() };
+          }
+          return c;
+        });
+        saveMasterList(updatedCompanies);
+        setCompanies(updatedCompanies);
+
+        // Refresh the selected company view
+        const refreshed = updatedCompanies.find(c => c.id === company.id);
+        if (refreshed) setSelectedCompany(refreshed);
+      }
+
+      setAgentStatus('done');
+      setTimeout(() => setAgentStatus(null), 2000);
+    } catch (err) {
+      console.error('Agent error:', err);
+      alert(`Research agent error: ${err.message}`);
+      setAgentStatus('error');
+      setTimeout(() => setAgentStatus(null), 2000);
     }
   };
 
@@ -401,35 +615,39 @@ function MasterList() {
 
   // Filter companies
   const filteredCompanies = companies.filter(company => {
-    // Search filter
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
         company.organizationName?.toLowerCase().includes(search) ||
         company.description?.toLowerCase().includes(search) ||
+        company.headquarters?.toLowerCase().includes(search) ||
         company.nycAddress?.toLowerCase().includes(search);
       if (!matchesSearch) return false;
     }
 
-    // Status filter
     if (filters.prospectStatus && company.prospectStatus !== filters.prospectStatus) {
       return false;
     }
 
-    // NYC Office filter
     if (filters.nycOffice) {
       if (filters.nycOffice === 'yes' && company.nycOfficeConfirmed !== 'Yes') return false;
       if (filters.nycOffice === 'no' && company.nycOfficeConfirmed === 'Yes') return false;
     }
 
-    // Funding stage filter
     if (filters.fundingStage) {
-      if (filters.fundingStage === 'ok' && company.fundingStageOK !== '✅ Yes') return false;
-      if (filters.fundingStage === 'not_ok' && company.fundingStageOK === '✅ Yes') return false;
+      if (filters.fundingStage === 'ok' && company.fundingStageOK !== 'Yes') return false;
+      if (filters.fundingStage === 'not_ok' && company.fundingStageOK === 'Yes') return false;
     }
 
     return true;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredCompanies.length / PAGE_SIZE);
+  const pagedCompanies = filteredCompanies.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0); }, [searchTerm, filters]);
 
   const selectedCompanies = filteredCompanies.filter(c => selectedIds.has(c.id));
 
@@ -438,7 +656,7 @@ function MasterList() {
       <div className="page-header">
         <div>
           <h1>Master List</h1>
-          <p>{companies.length > 0 ? `${companies.length} companies` : 'Your complete company database from Clay exports'}</p>
+          <p>{companies.length > 0 ? `${companies.length} companies` : 'Your complete company database from Crunchbase exports'}</p>
         </div>
         <div className="header-actions">
           {selectedIds.size > 0 && (
@@ -473,11 +691,26 @@ function MasterList() {
           <h4>Drop your CSV file here</h4>
           <p>or click to browse</p>
           <p className="text-muted" style={{ marginTop: '1rem', fontSize: '0.8rem' }}>
-            Supports Clay export format with company info, funding data, and prospect scoring
+            Supports Crunchbase export format with company info, funding data, and investor details
           </p>
         </div>
       ) : (
         <>
+          {/* Quick Add */}
+          <div className="quick-add-bar">
+            <input
+              type="text"
+              placeholder="Quick add by domain (e.g. company.com)"
+              value={quickAddDomain}
+              onChange={(e) => setQuickAddDomain(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()}
+            />
+            <button className="btn btn-primary" onClick={handleQuickAdd}>
+              <Plus size={18} />
+              Add
+            </button>
+          </div>
+
           <div className="table-toolbar">
             <div className="search-box">
               <Search size={18} className="search-icon" />
@@ -509,11 +742,11 @@ function MasterList() {
                 onChange={(e) => setFilters(f => ({ ...f, prospectStatus: e.target.value }))}
               >
                 <option value="">All Prospect Statuses</option>
-                <option value="🔥 Hot Prospect">🔥 Hot Prospect</option>
-                <option value="👀 Worth a Look">👀 Worth a Look</option>
-                <option value="❄️ Low Priority">❄️ Low Priority</option>
-                <option value="❌ Remote Only">❌ Remote Only</option>
-                <option value="❌ No NYC Presence">❌ No NYC Presence</option>
+                <option value="🔥 Hot Prospect">Hot Prospect</option>
+                <option value="👀 Worth a Look">Worth a Look</option>
+                <option value="❄️ Low Priority">Low Priority</option>
+                <option value="❌ Remote Only">Remote Only</option>
+                <option value="❌ No NYC Presence">No NYC Presence</option>
               </select>
 
               <select
@@ -556,15 +789,15 @@ function MasterList() {
                       />
                     </th>
                     <th>Company</th>
-                    <th>Status</th>
+                    <th>HQ</th>
+                    <th>Funding</th>
+                    <th>Last Round</th>
                     <th>Employees</th>
-                    <th>NYC Jobs</th>
-                    <th>Last Funding</th>
                     <th>NYC Office</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCompanies.slice(0, 100).map(company => (
+                  {pagedCompanies.map(company => (
                     <tr
                       key={company.id}
                       onClick={() => setSelectedCompany(company)}
@@ -590,35 +823,47 @@ function MasterList() {
                           </div>
                         </div>
                       </td>
-                      <td>
-                        {company.prospectStatus && (
-                          <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                            {company.prospectStatus}
-                          </span>
-                        )}
-                      </td>
-                      <td>{company.employeeCount || '-'}</td>
-                      <td>{company.nycJobs || '-'}</td>
+                      <td>{company.headquarters || '-'}</td>
+                      <td>{company.totalFunding || '-'}</td>
                       <td>
                         {company.lastFundingAmount ? (
                           <>
-                            ${(parseInt(company.lastFundingAmount) / 1000000).toFixed(1)}M
+                            {company.lastFundingAmount}
                             {company.lastFundingType && <span className="text-muted"> ({company.lastFundingType})</span>}
                           </>
                         ) : '-'}
                       </td>
+                      <td>{company.employeeCount || '-'}</td>
                       <td>
-                        {company.nycOfficeConfirmed === 'Yes' ? '✅' :
-                         company.nycOfficeConfirmed === 'No' ? '❌' : '❓'}
+                        {company.nycOfficeConfirmed === 'Yes' ? 'Yes' :
+                         company.nycOfficeConfirmed === 'No' ? 'No' : '-'}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {filteredCompanies.length > 100 && (
-              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                Showing first 100 of {filteredCompanies.length} companies. Use filters or search to narrow down.
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="pagination">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 0}
+                  style={{ fontSize: '0.8rem', padding: '0.375rem 0.75rem' }}
+                >
+                  <ChevronLeft size={16} /> Previous
+                </button>
+                <span>Page {page + 1} of {totalPages} ({filteredCompanies.length} companies)</span>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={page >= totalPages - 1}
+                  style={{ fontSize: '0.8rem', padding: '0.375rem 0.75rem' }}
+                >
+                  Next <ChevronRight size={16} />
+                </button>
               </div>
             )}
           </div>
@@ -629,6 +874,8 @@ function MasterList() {
         <CompanyModal
           company={selectedCompany}
           onClose={() => setSelectedCompany(null)}
+          onRunAgent={handleRunAgent}
+          agentStatus={agentStatus}
         />
       )}
 

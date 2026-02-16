@@ -6,6 +6,7 @@ import Prospects from './pages/Prospects';
 import MasterList from './pages/MasterList';
 import LeaseIntelligence from './pages/LeaseIntelligence';
 import Commissions from './pages/Commissions';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="/master-list" element={<MasterList />} />
         <Route path="/lease-intelligence" element={<LeaseIntelligence />} />
         <Route path="/commissions" element={<Commissions />} />
+        <Route path="/settings" element={<Settings />} />
       </Routes>
     </MainLayout>
   );
