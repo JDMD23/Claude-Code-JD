@@ -1,6 +1,16 @@
 // DealFlow Data Store - Persists to localStorage
 import { v4 as uuidv4 } from 'uuid';
 
+// Research Agent step descriptions for progress UI
+export const AGENT_STEPS = [
+  { step: 1, label: 'Company Overview', description: 'Gathering company info from Perplexity + Apollo' },
+  { step: 2, label: 'Decision Makers', description: 'Finding key contacts for office space decisions' },
+  { step: 3, label: 'NYC Address Search', description: 'Deep search for exact NYC office address' },
+  { step: 4, label: 'Recent News', description: 'Searching for recent office/lease news' },
+  { step: 5, label: 'Hiring Intelligence', description: 'Analyzing hiring activity and roles' },
+  { step: 6, label: 'Outreach Email', description: 'Generating personalized cold email' },
+];
+
 const STORAGE_KEYS = {
   DEALS: 'dealflow_deals',
   PROSPECTS: 'dealflow_prospects',
@@ -508,6 +518,44 @@ export async function enrichCompany(domain) {
   }
 
   return data;
+}
+
+// ============ RESEARCH AGENT ============
+export async function runResearchAgent(domain, onProgress) {
+  const settings = getSettings();
+
+  if (!settings.proxyUrl || (!settings.perplexityApiKey && !settings.apolloApiKey)) {
+    throw new Error('Configure Proxy URL and at least one API key in Settings.');
+  }
+
+  const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
+
+  // Notify progress
+  if (onProgress) onProgress({ step: 1, total: 6, message: 'Starting research agent...' });
+
+  const response = await fetch(`${proxyUrl}/agent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      domain,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      tavilyApiKey: settings.tavilyApiKey || '',
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Agent returned ${response.status}`);
+  }
+
+  const dossier = await response.json();
+  if (dossier?.error) {
+    throw new Error(dossier.error);
+  }
+
+  if (onProgress) onProgress({ step: 6, total: 6, message: 'Research complete!' });
+
+  return dossier;
 }
 
 // ============ DASHBOARD STATS ============

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2 } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany } from '../store/dataStore';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle } from 'lucide-react';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -299,7 +299,7 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
 }
 
 // Company Detail Modal
-function CompanyModal({ company, onClose, onEnrich, onDelete }) {
+function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent }) {
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState(null);
 
@@ -324,6 +324,13 @@ function CompanyModal({ company, onClose, onEnrich, onDelete }) {
       setEnrichResult({ success: false, message: err.message || 'Enrichment failed.' });
     }
     setEnriching(false);
+  };
+
+  const handleRunAgent = () => {
+    if (domain && onRunAgent) {
+      onRunAgent(domain);
+      onClose(); // Close this modal, agent modal will open
+    }
   };
 
   const InfoRow = ({ label, value, isLink }) => {
@@ -357,15 +364,25 @@ function CompanyModal({ company, onClose, onEnrich, onDelete }) {
                   </span>
                 )}
                 {domain && (
-                  <button
-                    className={`btn btn-secondary btn-sm enrich-btn ${enriching ? 'enriching' : ''}`}
-                    onClick={handleEnrich}
-                    disabled={enriching}
-                    title={`Enrich ${domain}`}
-                  >
-                    {enriching ? <Loader size={14} strokeWidth={1.5} className="spin" /> : <Zap size={14} strokeWidth={1.5} />}
-                    {enriching ? 'Enriching...' : 'Enrich'}
-                  </button>
+                  <>
+                    <button
+                      className={`btn btn-secondary btn-sm enrich-btn ${enriching ? 'enriching' : ''}`}
+                      onClick={handleEnrich}
+                      disabled={enriching}
+                      title={`Enrich ${domain}`}
+                    >
+                      {enriching ? <Loader size={14} strokeWidth={1.5} className="spin" /> : <Zap size={14} strokeWidth={1.5} />}
+                      {enriching ? 'Enriching...' : 'Enrich'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm agent-btn"
+                      onClick={handleRunAgent}
+                      title="Run full research agent"
+                    >
+                      <Bot size={14} strokeWidth={1.5} />
+                      Run Agent
+                    </button>
+                  </>
                 )}
               </div>
               {enrichResult && (
@@ -490,6 +507,227 @@ function AddToCRMModal({ selectedCompanies, onClose, onAdd }) {
   );
 }
 
+// Research Agent Dossier Modal
+function DossierModal({ dossier, onClose }) {
+  const [copiedEmail, setCopiedEmail] = useState(false);
+
+  if (!dossier) return null;
+
+  const copyEmail = () => {
+    if (dossier.outreachEmail) {
+      navigator.clipboard.writeText(dossier.outreachEmail);
+      setCopiedEmail(true);
+      setTimeout(() => setCopiedEmail(false), 2000);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-large" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <Bot size={24} strokeWidth={1.5} style={{ color: 'var(--accent)' }} />
+            <div>
+              <h2>Research Dossier: {dossier.company?.companyName || dossier.domain}</h2>
+              <span className="text-muted" style={{ fontSize: '0.85rem' }}>
+                Generated {new Date(dossier.generatedAt).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <button className="modal-close" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="modal-body dossier-body">
+          {/* Company Overview */}
+          <div className="dossier-section">
+            <h4><Building2 size={16} strokeWidth={1.5} /> Company Overview</h4>
+            <div className="dossier-grid-info">
+              <div className="dossier-item">
+                <span className="label">Company</span>
+                <span className="value">{dossier.company?.companyName || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Industry</span>
+                <span className="value">{dossier.company?.industry || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Founded</span>
+                <span className="value">{dossier.company?.founded || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Employees</span>
+                <span className="value">{dossier.company?.employeeCount || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Headquarters</span>
+                <span className="value">{dossier.company?.headquarters || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Total Funding</span>
+                <span className="value">{dossier.company?.totalFunding || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Top Investors</span>
+                <span className="value">{dossier.company?.topInvestors || '-'}</span>
+              </div>
+              <div className="dossier-item full-width">
+                <span className="label">Description</span>
+                <span className="value">{dossier.company?.description || '-'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* NYC Intel */}
+          <div className="dossier-section">
+            <h4><MapPin size={16} strokeWidth={1.5} /> NYC Office Intel</h4>
+            <div className="dossier-grid-info">
+              <div className="dossier-item">
+                <span className="label">NYC Address</span>
+                <span className="value highlight">{dossier.nycIntel?.address || dossier.company?.nycAddress || 'Not found'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Confirmed</span>
+                <span className="value">{dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || '-'}</span>
+              </div>
+              {dossier.nycIntel?.careersUrl && (
+                <div className="dossier-item">
+                  <span className="label">Careers Page</span>
+                  <a href={dossier.nycIntel.careersUrl} target="_blank" rel="noopener noreferrer" className="value link">
+                    {dossier.nycIntel.careersUrl} <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Decision Makers */}
+          <div className="dossier-section">
+            <h4><UserCheck size={16} strokeWidth={1.5} /> Decision Makers</h4>
+            {dossier.contacts && dossier.contacts.length > 0 ? (
+              <div className="contacts-list">
+                {dossier.contacts.map((contact, idx) => (
+                  <div key={idx} className="contact-card">
+                    <div className="contact-name">{contact.name}</div>
+                    <div className="contact-title">{contact.title}</div>
+                    {contact.linkedin && (
+                      <a href={contact.linkedin} target="_blank" rel="noopener noreferrer" className="contact-linkedin">
+                        LinkedIn <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted">No decision makers found</p>
+            )}
+          </div>
+
+          {/* Hiring Intel */}
+          <div className="dossier-section">
+            <h4><Briefcase size={16} strokeWidth={1.5} /> Hiring Intelligence</h4>
+            <div className="dossier-grid-info">
+              <div className="dossier-item">
+                <span className="label">Hiring Status</span>
+                <span className="value">{dossier.hiring?.status || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">Total Jobs</span>
+                <span className="value">{dossier.hiring?.totalJobs || '-'}</span>
+              </div>
+              <div className="dossier-item">
+                <span className="label">NYC Jobs</span>
+                <span className="value">{dossier.hiring?.nycJobs || '-'}</span>
+              </div>
+              <div className="dossier-item full-width">
+                <span className="label">Key Roles</span>
+                <span className="value">{dossier.hiring?.keyRoles || '-'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent News */}
+          <div className="dossier-section">
+            <h4><Newspaper size={16} strokeWidth={1.5} /> Recent News</h4>
+            {dossier.recentNews && dossier.recentNews.length > 0 ? (
+              <div className="news-list">
+                {dossier.recentNews.map((article, idx) => (
+                  <div key={idx} className="news-item">
+                    <a href={article.url} target="_blank" rel="noopener noreferrer" className="news-title">
+                      {article.title} <ExternalLink size={12} />
+                    </a>
+                    <p className="news-snippet">{article.snippet}</p>
+                    <span className="news-source">{article.source}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted">No recent news found</p>
+            )}
+          </div>
+
+          {/* Outreach Email */}
+          <div className="dossier-section">
+            <h4><Mail size={16} strokeWidth={1.5} /> Generated Outreach Email</h4>
+            {dossier.outreachEmail ? (
+              <div className="email-preview">
+                <pre className="email-content">{dossier.outreachEmail}</pre>
+                <button className="btn btn-secondary btn-sm" onClick={copyEmail}>
+                  {copiedEmail ? <><CheckCircle size={14} /> Copied!</> : <><Copy size={14} /> Copy Email</>}
+                </button>
+              </div>
+            ) : (
+              <p className="text-muted">No email generated</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Agent Progress Modal
+function AgentProgressModal({ progress, onClose }) {
+  return (
+    <div className="modal-overlay">
+      <div className="modal modal-small agent-progress-modal">
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Bot size={20} strokeWidth={1.5} className="spin-slow" style={{ color: 'var(--accent)' }} />
+            <h2>Research Agent Running</h2>
+          </div>
+        </div>
+        <div className="modal-body">
+          <div className="agent-progress">
+            {AGENT_STEPS.map((step) => (
+              <div
+                key={step.step}
+                className={`progress-step ${progress?.step >= step.step ? 'active' : ''} ${progress?.step > step.step ? 'completed' : ''}`}
+              >
+                <div className="step-indicator">
+                  {progress?.step > step.step ? (
+                    <CheckCircle size={16} strokeWidth={2} />
+                  ) : progress?.step === step.step ? (
+                    <Loader size={16} strokeWidth={2} className="spin" />
+                  ) : (
+                    <span className="step-number">{step.step}</span>
+                  )}
+                </div>
+                <div className="step-info">
+                  <span className="step-label">{step.label}</span>
+                  <span className="step-desc">{step.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="agent-status">{progress?.message || 'Initializing...'}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MasterList() {
   const [companies, setCompanies] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -504,6 +742,9 @@ function MasterList() {
     nycOffice: '',
     fundingStage: '',
   });
+  const [agentProgress, setAgentProgress] = useState(null);
+  const [agentDossier, setAgentDossier] = useState(null);
+  const [agentRunning, setAgentRunning] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -610,6 +851,41 @@ function MasterList() {
       next.delete(companyId);
       return next;
     });
+  };
+
+  const handleRunAgent = async (domain) => {
+    setAgentRunning(true);
+    setAgentProgress({ step: 1, total: 6, message: 'Starting research agent...' });
+    setAgentDossier(null);
+
+    // Simulate progress updates (actual progress comes from API completion)
+    const progressInterval = setInterval(() => {
+      setAgentProgress(prev => {
+        if (!prev || prev.step >= 5) return prev;
+        const nextStep = prev.step + 1;
+        const stepInfo = AGENT_STEPS.find(s => s.step === nextStep);
+        return {
+          step: nextStep,
+          total: 6,
+          message: stepInfo?.description || 'Processing...'
+        };
+      });
+    }, 2500);
+
+    try {
+      const dossier = await runResearchAgent(domain, (progress) => {
+        setAgentProgress(progress);
+      });
+      clearInterval(progressInterval);
+      setAgentProgress({ step: 6, total: 6, message: 'Research complete!' });
+      setAgentDossier(dossier);
+      setAgentRunning(false);
+    } catch (err) {
+      clearInterval(progressInterval);
+      setAgentRunning(false);
+      setAgentProgress(null);
+      alert('Agent error: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleAddToCRM = (companiesToAdd, stage) => {
@@ -909,6 +1185,7 @@ function MasterList() {
           onClose={() => setSelectedCompany(null)}
           onEnrich={handleEnrichCompany}
           onDelete={handleDeleteCompany}
+          onRunAgent={handleRunAgent}
         />
       )}
 
@@ -917,6 +1194,20 @@ function MasterList() {
           selectedCompanies={selectedCompanies}
           onClose={() => setShowCRMModal(false)}
           onAdd={handleAddToCRM}
+        />
+      )}
+
+      {agentRunning && (
+        <AgentProgressModal
+          progress={agentProgress}
+          onClose={() => {}}
+        />
+      )}
+
+      {agentDossier && !agentRunning && (
+        <DossierModal
+          dossier={agentDossier}
+          onClose={() => setAgentDossier(null)}
         />
       )}
     </div>

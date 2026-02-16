@@ -109,6 +109,101 @@ export default {
         return jsonResponse(results);
       }
 
+      // POST /agent — Full research agent that chains multiple API calls
+      if (path === '/agent' && request.method === 'POST') {
+        const body = await request.json();
+        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey } = body;
+
+        if (!domain) {
+          return jsonResponse({ error: 'domain is required' }, 400);
+        }
+
+        const dossier = {
+          domain,
+          generatedAt: new Date().toISOString(),
+          company: {},
+          contacts: [],
+          nycIntel: {},
+          recentNews: [],
+          hiring: {},
+          outreachEmail: '',
+        };
+
+        const companyNameGuess = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+
+        // STEP 1: Company Overview (Perplexity + Apollo in parallel)
+        const step1Tasks = [];
+        if (perplexityApiKey) {
+          step1Tasks.push(
+            fetchPerplexity(domain, perplexityApiKey)
+              .then(data => Object.assign(dossier.company, data))
+              .catch(() => {})
+          );
+        }
+        if (apolloApiKey) {
+          step1Tasks.push(
+            fetchApollo(domain, apolloApiKey)
+              .then(data => {
+                Object.keys(data).forEach(key => {
+                  if (!dossier.company[key]) dossier.company[key] = data[key];
+                });
+              })
+              .catch(() => {})
+          );
+        }
+        await Promise.allSettled(step1Tasks);
+
+        const companyName = dossier.company.companyName || companyNameGuess;
+
+        // STEP 2: Find Decision Makers
+        if (perplexityApiKey) {
+          try {
+            const contactsData = await fetchDecisionMakers(companyName, domain, perplexityApiKey);
+            if (contactsData.contacts) {
+              dossier.contacts = contactsData.contacts;
+            }
+          } catch {}
+        }
+
+        // STEP 3: NYC Address Deep Search
+        if (tavilyApiKey) {
+          try {
+            const nycData = await fetchTavilyAddress(companyName, domain, tavilyApiKey);
+            dossier.nycIntel = {
+              address: nycData.nycAddress || dossier.company.nycAddress || 'Not found',
+              confirmed: nycData.nycAddress ? 'Yes' : 'No',
+              careersUrl: nycData.careersUrl || dossier.company.careersUrl || '',
+            };
+          } catch {}
+        }
+
+        // STEP 4: Recent News Search
+        if (tavilyApiKey) {
+          try {
+            const newsData = await fetchRecentNews(companyName, tavilyApiKey);
+            dossier.recentNews = newsData.articles || [];
+          } catch {}
+        }
+
+        // STEP 5: Hiring Intelligence
+        dossier.hiring = {
+          status: dossier.company.hiringStatus || 'Unknown',
+          totalJobs: dossier.company.totalJobs || 'Unknown',
+          nycJobs: dossier.company.nycJobs || 'Unknown',
+          keyRoles: dossier.company.keyRolesHiring || '',
+        };
+
+        // STEP 6: Generate Outreach Email
+        if (perplexityApiKey) {
+          try {
+            const emailData = await generateOutreachEmail(companyName, domain, dossier, perplexityApiKey);
+            dossier.outreachEmail = emailData.email || '';
+          } catch {}
+        }
+
+        return jsonResponse(dossier);
+      }
+
       // Health check
       if (path === '/' || path === '/health') {
         return jsonResponse({ status: 'ok', service: 'dealflow-proxy' });
@@ -344,6 +439,142 @@ async function fetchApollo(domain, apiKey) {
   if (org.number_of_funding_rounds) results.fundingRounds = String(org.number_of_funding_rounds);
   if (org.blog_url || org.website_url) results.careersUrl = org.blog_url || '';
   return results;
+}
+
+// Agent helper: Find decision makers
+async function fetchDecisionMakers(companyName, domain, apiKey) {
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-sonar-small-128k-online',
+      messages: [
+        {
+          role: 'user',
+          content: `Find the key decision makers at ${companyName} (${domain}) who would be involved in office space decisions.
+
+Look for:
+- CEO / Founder
+- COO / Chief Operating Officer
+- Head of Real Estate / Workplace
+- Office Manager / Facilities Manager
+- Head of People / HR (they often handle office decisions)
+
+Search LinkedIn, the company website's team/about page, and recent press releases.
+
+Return JSON only:
+{
+  "contacts": [
+    {"name": "Full Name", "title": "Job Title", "linkedin": "linkedin URL if found"},
+    {"name": "Full Name", "title": "Job Title", "linkedin": "linkedin URL if found"}
+  ]
+}
+
+Return up to 3 most relevant contacts. If you can't find anyone, return empty array.`,
+        },
+      ],
+      max_tokens: 400,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Perplexity ${response.status}`);
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  return { contacts: [] };
+}
+
+// Agent helper: Recent news search via Tavily
+async function fetchRecentNews(companyName, apiKey) {
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: `${companyName} office lease OR ${companyName} new office OR ${companyName} expansion OR ${companyName} headquarters move`,
+      search_depth: 'advanced',
+      include_answer: false,
+      max_results: 5
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Tavily ${response.status}`);
+  const data = await response.json();
+
+  const articles = (data.results || []).map(r => ({
+    title: r.title,
+    url: r.url,
+    snippet: r.content?.slice(0, 200) || '',
+    source: new URL(r.url).hostname,
+  }));
+
+  return { articles };
+}
+
+// Agent helper: Generate personalized outreach email
+async function generateOutreachEmail(companyName, domain, dossier, apiKey) {
+  const context = `
+Company: ${companyName}
+Industry: ${dossier.company.industry || 'Unknown'}
+Employees: ${dossier.company.employeeCount || 'Unknown'}
+HQ: ${dossier.company.headquarters || 'Unknown'}
+NYC Address: ${dossier.nycIntel?.address || 'Unknown'}
+Funding: ${dossier.company.totalFunding || 'Unknown'}
+Hiring: ${dossier.hiring?.status || 'Unknown'}, ${dossier.hiring?.totalJobs || '?'} open roles
+Recent News: ${dossier.recentNews?.[0]?.title || 'None found'}
+Key Contact: ${dossier.contacts?.[0]?.name || 'Unknown'}, ${dossier.contacts?.[0]?.title || ''}
+  `.trim();
+
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-sonar-small-128k-online',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a commercial real estate broker writing cold outreach emails. Be concise, professional, and personalized based on the company intel provided.'
+        },
+        {
+          role: 'user',
+          content: `Write a short cold email (3-4 sentences max) to reach out about NYC office space opportunities.
+
+COMPANY INTEL:
+${context}
+
+Requirements:
+- Reference something specific about their company (funding, growth, hiring, etc.)
+- Mention you specialize in NYC office space for tech/startup companies
+- Keep it under 100 words
+- Don't be salesy, be helpful
+- End with a soft CTA (coffee chat, quick call)
+
+Return JSON only:
+{"email": "the email text", "subject": "email subject line"}`,
+        },
+      ],
+      max_tokens: 300,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Perplexity ${response.status}`);
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    const parsed = JSON.parse(jsonMatch[0]);
+    return { email: `Subject: ${parsed.subject}\n\n${parsed.email}` };
+  }
+  return { email: '' };
 }
 
 function jsonResponse(data, status = 200) {
