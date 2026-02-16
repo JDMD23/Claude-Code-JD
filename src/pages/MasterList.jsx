@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany } from '../store/dataStore';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus, Clock, AlertCircle, ChevronRight, Activity } from 'lucide-react';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, COMPANY_STATUSES, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany, updateCompanyStatus, deleteCompaniesFromMasterList, getCompanyActivities, logActivity } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -101,24 +101,32 @@ function parseCSV(text) {
   return data;
 }
 
-// Map CSV columns to our data structure
+// Map CSV columns to our data structure (supports Crunchbase export format)
 function mapCompanyData(rawData) {
   return rawData.map(row => ({
-    organizationName: row['Organization Name'] || row['Company Name'] || row['Name'] || '',
-    website: row['Website'] || row['URL'] || '',
+    // Core identifiers
+    organizationName: row['Tenant name'] || row['Organization Name'] || row['Company Name'] || row['Name'] || '',
+    website: row['website'] || row['Website'] || row['URL'] || '',
     linkedin: row['LinkedIn'] || row['LinkedIn URL'] || '',
-    foundedDate: row['Founded Date'] || row['Founded'] || '',
-    description: row['Description'] || '',
-    topInvestors: row['Top 5 Investors'] || row['Investors'] || '',
-    fundingRounds: row['Number of Funding Rounds'] || row['Funding Rounds'] || '',
-    lastFundingDate: row['Last Funding Date'] || '',
-    lastFundingType: row['Last Funding Type'] || '',
-    lastFundingAmount: row['Last Funding Amount (in USD)'] || row['Last Funding Amount'] || '',
-    totalFunding: row['Total Funding Amount (in USD)'] || row['Total Funding'] || '',
-    fundingInRange: row['Funding in Range'] || '',
-    fundingStageOK: row['Funding Stage OK'] || '',
-    employeeCount: row['Employee Count'] || row['Employees'] || row['Size'] || '',
-    headcountFilter: row['Headcount Filter'] || '',
+    crunchbaseUrl: row['CrunchBase URL'] || row['Crunchbase URL'] || '',
+    // Company info
+    headquarters: row['HQ'] || row['Headquarters'] || '',
+    foundedDate: row['founded year'] || row['Founded Date'] || row['Founded'] || '',
+    description: row['description'] || row['Description'] || '',
+    employeeCount: row['number of employees'] || row['Employee Count'] || row['Employees'] || row['Size'] || '',
+    industry: row['Industry'] || '',
+    // Funding
+    totalFunding: row['total funding'] || row['Total Funding Amount (in USD)'] || row['Total Funding'] || '',
+    lastFundingDate: row['last funding date'] || row['Last Funding Date'] || '',
+    lastFundingType: row['last funding type'] || row['Last Funding Type'] || '',
+    lastFundingAmount: row['fast funding amount in USD'] || row['Last Funding Amount (in USD)'] || row['Last Funding Amount'] || '',
+    fundingRounds: row['number of funding rounds'] || row['Number of Funding Rounds'] || row['Funding Rounds'] || '',
+    topInvestors: row['top 5 investors'] || row['Top 5 Investors'] || row['Investors'] || '',
+    leadInvestors: row['lead investors'] || row['Lead Investors'] || '',
+    // People
+    founders: row['founders'] || row['Founders'] || '',
+    keyContacts: row['Key Contacts'] || '',
+    // Hiring
     careersUrl: row['Careers URL'] || '',
     totalJobs: row['Total Jobs'] || '',
     nycJobs: row['NYC Jobs'] || '',
@@ -127,12 +135,18 @@ function mapCompanyData(rawData) {
     inOfficeJobs: row['In-Office Jobs'] || '',
     departmentsHiring: row['Departments Hiring'] || '',
     workPolicyQuote: row['Work Policy Quote'] || '',
+    // NYC Intel
     nycOfficeConfirmed: row['NYC Office Confirmed'] || '',
     nycAddress: row['NYC Address'] || '',
+    // Legacy/scoring fields
+    fundingInRange: row['Funding in Range'] || '',
+    fundingStageOK: row['Funding Stage OK'] || '',
+    headcountFilter: row['Headcount Filter'] || '',
     excludeRemoteOnly: row['Exclude Remote Only'] || '',
     prospectScore: row['Prospect Score'] || '',
     prospectStatus: row['Prospect Status'] || '',
-    keyContacts: row['Key Contacts'] || '',
+    // Default status for new imports
+    status: 'new',
   }));
 }
 
@@ -228,10 +242,13 @@ function QuickAddDomain({ onAdd }) {
 }
 
 // Dossier Card Component
-function DossierCard({ company, isSelected, onSelect, onClick }) {
+function DossierCard({ company, isSelected, isFocused, onSelect, onClick }) {
+  const stale = isDataStale(company.lastResearchedAt);
+  const status = COMPANY_STATUSES.find(s => s.id === company.status) || COMPANY_STATUSES[0];
+
   return (
     <div
-      className={`dossier-card ${isSelected ? 'selected' : ''}`}
+      className={`dossier-card ${isSelected ? 'selected' : ''} ${isFocused ? 'focused' : ''}`}
       onClick={() => onClick(company)}
     >
       <div className="dossier-select" onClick={(e) => { e.stopPropagation(); onSelect(company.id); }}>
@@ -240,6 +257,18 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
           checked={isSelected}
           onChange={() => {}}
         />
+      </div>
+
+      {/* Status badge and staleness indicator */}
+      <div className="dossier-top-badges">
+        <span className="status-badge" style={{ backgroundColor: status.color + '20', color: status.color }}>
+          {status.name}
+        </span>
+        {stale && (
+          <span className="stale-badge" title="Data is over 30 days old">
+            <Clock size={12} strokeWidth={1.5} />
+          </span>
+        )}
       </div>
 
       <div className="dossier-header">
@@ -271,10 +300,10 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
             <span>{company.nycJobs} NYC</span>
           </div>
         )}
-        {company.lastFundingAmount && (
+        {(company.totalFunding || company.lastFundingAmount) && (
           <div className="dossier-stat">
             <TrendingUp size={13} strokeWidth={1.5} />
-            <span>{formatFunding(company.lastFundingAmount)}</span>
+            <span>{formatFunding(company.totalFunding || company.lastFundingAmount)}</span>
             {company.lastFundingType && <span className="dossier-stat-sub">{company.lastFundingType}</span>}
           </div>
         )}
@@ -300,42 +329,37 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
   );
 }
 
+// Helper: Check if data is stale (>30 days old)
+function isDataStale(lastResearchedAt) {
+  if (!lastResearchedAt) return false;
+  const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  return new Date(lastResearchedAt).getTime() < thirtyDaysAgo;
+}
+
 // Company Detail Modal
-function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onViewDossier }) {
-  const [enriching, setEnriching] = useState(false);
-  const [enrichResult, setEnrichResult] = useState(null);
+function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, onStatusChange }) {
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [showActivityTimeline, setShowActivityTimeline] = useState(false);
   const contacts = getContactsByCompany(company?.id);
+  const activities = company?.id ? getCompanyActivities(company.id) : [];
 
   if (!company) return null;
 
   const dossier = company.lastDossier;
-
   const domain = getDomain(company.website);
-
-  const handleEnrich = async () => {
-    if (!domain) return;
-    setEnriching(true);
-    setEnrichResult(null);
-    try {
-      const result = await enrichCompany(domain);
-      const hasData = Object.keys(result).length > 0;
-      if (hasData) {
-        onEnrich(company.id, result);
-        setEnrichResult({ success: true, message: 'Company data updated!' });
-      } else {
-        setEnrichResult({ success: false, message: 'No data found for this domain.' });
-      }
-    } catch (err) {
-      setEnrichResult({ success: false, message: err.message || 'Enrichment failed.' });
-    }
-    setEnriching(false);
-  };
+  const stale = isDataStale(company.lastResearchedAt);
+  const currentStatus = COMPANY_STATUSES.find(s => s.id === company.status) || COMPANY_STATUSES[0];
 
   const handleRunAgent = () => {
     if (domain && onRunAgent) {
       onRunAgent(domain, company.id);
-      onClose(); // Close this modal, agent modal will open
+      onClose();
+    }
+  };
+
+  const handleStatusChange = (newStatus) => {
+    if (onStatusChange) {
+      onStatusChange(company.id, newStatus);
     }
   };
 
@@ -363,39 +387,38 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
             <CompanyLogo website={company.website} name={company.organizationName} size={48} />
             <div>
               <h2>{company.organizationName}</h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
-                {company.prospectStatus && (
-                  <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                    {company.prospectStatus}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                {/* Status dropdown */}
+                <select
+                  className="status-select"
+                  value={company.status || 'new'}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  style={{ borderColor: currentStatus.color }}
+                >
+                  {COMPANY_STATUSES.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+
+                {/* Staleness indicator */}
+                {stale && (
+                  <span className="stale-indicator" title="Data is over 30 days old">
+                    <AlertCircle size={14} strokeWidth={1.5} />
+                    Stale
                   </span>
                 )}
+
                 {domain && (
-                  <>
-                    <button
-                      className={`btn btn-secondary btn-sm enrich-btn ${enriching ? 'enriching' : ''}`}
-                      onClick={handleEnrich}
-                      disabled={enriching}
-                      title={`Enrich ${domain}`}
-                    >
-                      {enriching ? <Loader size={14} strokeWidth={1.5} className="spin" /> : <Zap size={14} strokeWidth={1.5} />}
-                      {enriching ? 'Enriching...' : 'Enrich'}
-                    </button>
-                    <button
-                      className="btn btn-primary btn-sm agent-btn"
-                      onClick={handleRunAgent}
-                      title="Run full research agent"
-                    >
-                      <Bot size={14} strokeWidth={1.5} />
-                      Run Agent
-                    </button>
-                  </>
+                  <button
+                    className="btn btn-primary btn-sm agent-btn"
+                    onClick={handleRunAgent}
+                    title="Run full research agent"
+                  >
+                    <Bot size={14} strokeWidth={1.5} />
+                    Run Agent
+                  </button>
                 )}
               </div>
-              {enrichResult && (
-                <span className={`enrich-result ${enrichResult.success ? 'success' : 'error'}`}>
-                  {enrichResult.message}
-                </span>
-              )}
             </div>
           </div>
           <button className="modal-close" onClick={onClose}>
@@ -404,10 +427,36 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
         </div>
 
         <div className="modal-body">
+          {/* Quick Status Bar */}
+          <div className="company-status-bar">
+            <div className="status-item">
+              <span className="status-label">NYC Office</span>
+              <span className={`status-value ${company.nycOfficeConfirmed === 'Yes' ? 'positive' : company.nycOfficeConfirmed === 'Planned' ? 'warning' : ''}`}>
+                {company.nycOfficeConfirmed || 'Unknown'}
+              </span>
+            </div>
+            <div className="status-item">
+              <span className="status-label">HQ</span>
+              <span className="status-value">{company.headquarters || '-'}</span>
+            </div>
+            <div className="status-item">
+              <span className="status-label">Employees</span>
+              <span className="status-value">{company.employeeCount || '-'}</span>
+            </div>
+            <div className="status-item">
+              <span className="status-label">Agent</span>
+              <span className={`status-value ${company.lastResearchedAt ? 'positive' : ''}`}>
+                {company.lastResearchedAt ? 'Run' : 'Not Run'}
+              </span>
+            </div>
+          </div>
+
           <div className="info-section">
             <h4><Building2 size={16} strokeWidth={1.5} /> Company Info</h4>
             <InfoRow label="Website" value={company.website} isLink />
             <InfoRow label="LinkedIn" value={company.linkedin} isLink />
+            <InfoRow label="Crunchbase" value={company.crunchbaseUrl} isLink />
+            <InfoRow label="Industry" value={company.industry} />
             <InfoRow label="Founded" value={company.foundedDate} />
             <InfoRow label="Headquarters" value={company.headquarters} />
             <InfoRow label="Description" value={company.description} />
@@ -418,16 +467,12 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
           <div className="info-section">
             <h4><Users size={16} strokeWidth={1.5} /> Team & Hiring</h4>
             <InfoRow label="Employee Count" value={company.employeeCount} />
+            <InfoRow label="Founders" value={company.founders} />
             <InfoRow label="Hiring Status" value={company.hiringStatus} />
             <InfoRow label="Total Jobs" value={company.totalJobs} />
             <InfoRow label="NYC Jobs" value={company.nycJobs} />
             <InfoRow label="Key Roles Hiring" value={company.departmentsHiring} />
             <InfoRow label="Careers Page" value={company.careersUrl} isLink />
-          </div>
-
-          <div className="info-section">
-            <h4><MapPin size={16} strokeWidth={1.5} /> Real Estate Intel</h4>
-            <InfoRow label="Recent Lease News" value={company.recentLeaseNews} />
           </div>
 
           <div className="info-section">
@@ -438,6 +483,7 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
             <InfoRow label="Last Funding Date" value={company.lastFundingDate} />
             <InfoRow label="Funding Rounds" value={company.fundingRounds} />
             <InfoRow label="Top Investors" value={company.topInvestors} />
+            <InfoRow label="Lead Investors" value={company.leadInvestors} />
             <InfoRow label="Funding in Range" value={company.fundingInRange} />
             <InfoRow label="Funding Stage OK" value={company.fundingStageOK} />
           </div>
@@ -531,6 +577,7 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
             <div className="info-section research-meta">
               <span className="text-muted">
                 Last researched: {new Date(company.lastResearchedAt).toLocaleDateString()} at {new Date(company.lastResearchedAt).toLocaleTimeString()}
+                {stale && <span className="stale-text"> (data may be outdated)</span>}
               </span>
               {dossier && (
                 <button className="btn btn-secondary btn-sm" onClick={() => onViewDossier && onViewDossier(dossier, company.id)}>
@@ -539,6 +586,31 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
               )}
             </div>
           )}
+
+          {/* Activity Timeline */}
+          <div className="info-section">
+            <h4 onClick={() => setShowActivityTimeline(!showActivityTimeline)} style={{ cursor: 'pointer' }}>
+              <Activity size={16} strokeWidth={1.5} /> Activity Timeline
+              <ChevronRight size={14} style={{ marginLeft: 'auto', transform: showActivityTimeline ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            </h4>
+            {showActivityTimeline && (
+              <div className="activity-timeline">
+                {activities.length > 0 ? (
+                  activities.slice(0, 10).map((activity) => (
+                    <div key={activity.id} className="activity-item">
+                      <span className="activity-dot"></span>
+                      <div className="activity-content">
+                        <span className="activity-message">{activity.message}</span>
+                        <span className="activity-time">{new Date(activity.timestamp).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-muted" style={{ fontSize: '0.8rem' }}>No activity recorded yet</p>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="modal-danger-zone">
             <button
@@ -553,6 +625,36 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onView
               <Trash2 size={14} strokeWidth={1.5} /> Remove from Master List
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Delete Confirmation Modal
+function DeleteConfirmModal({ count, onClose, onConfirm }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-small" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Delete Companies</h2>
+          <button className="modal-close" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="delete-warning">
+            <AlertCircle size={48} strokeWidth={1.5} />
+            <p>Are you sure you want to delete <strong>{count}</strong> {count === 1 ? 'company' : 'companies'}?</p>
+            <p className="text-muted">This action cannot be undone.</p>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-danger" onClick={onConfirm}>
+            <Trash2 size={18} strokeWidth={1.5} />
+            Delete {count} {count === 1 ? 'Company' : 'Companies'}
+          </button>
         </div>
       </div>
     </div>
@@ -939,6 +1041,7 @@ function MasterList() {
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showCRMModal, setShowCRMModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
@@ -946,12 +1049,18 @@ function MasterList() {
     prospectStatus: '',
     nycOffice: '',
     fundingStage: '',
+    companyStatus: '',
+    agentStatus: '',
+    employeeRange: '',
+    fundingRange: '',
   });
   const [agentProgress, setAgentProgress] = useState(null);
   const [agentDossier, setAgentDossier] = useState(null);
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentCompanyId, setAgentCompanyId] = useState(null);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const fileInputRef = useRef(null);
+  const listRef = useRef(null);
 
   useEffect(() => {
     setCompanies(getMasterList());
@@ -1008,43 +1117,6 @@ function MasterList() {
     } else {
       setSelectedIds(new Set(filteredCompanies.map(c => c.id)));
     }
-  };
-
-  const handleEnrichCompany = (companyId, enrichData) => {
-    const updated = companies.map(c => {
-      if (c.id !== companyId) return c;
-      return {
-        ...c,
-        organizationName: enrichData.companyName || c.organizationName,
-        description: enrichData.description || c.description,
-        employeeCount: enrichData.employeeCount || c.employeeCount,
-        industry: enrichData.industry || c.industry,
-        linkedin: enrichData.linkedinUrl || c.linkedin,
-        foundedDate: enrichData.founded || c.foundedDate,
-        nycAddress: enrichData.nycAddress || c.nycAddress,
-        headquarters: enrichData.headquarters || c.headquarters,
-        nycOfficeConfirmed: enrichData.nycOfficeConfirmed || c.nycOfficeConfirmed,
-        workPolicyQuote: enrichData.workPolicyQuote || c.workPolicyQuote,
-        totalJobs: enrichData.totalJobs || c.totalJobs,
-        nycJobs: enrichData.nycJobs || c.nycJobs,
-        departmentsHiring: enrichData.departmentsHiring || enrichData.keyRolesHiring || c.departmentsHiring,
-        hiringStatus: enrichData.hiringStatus || c.hiringStatus,
-        recentLeaseNews: enrichData.recentLeaseNews || c.recentLeaseNews,
-        careersUrl: enrichData.careersUrl || c.careersUrl,
-        totalFunding: enrichData.totalFunding || c.totalFunding,
-        lastFundingAmount: enrichData.lastFundingAmount || c.lastFundingAmount,
-        lastFundingType: enrichData.lastFundingType || c.lastFundingType,
-        lastFundingDate: enrichData.lastFundingDate || c.lastFundingDate,
-        fundingRounds: enrichData.fundingRounds || c.fundingRounds,
-        topInvestors: enrichData.topInvestors || c.topInvestors,
-        keyContacts: enrichData.keyContacts || c.keyContacts,
-      };
-    });
-    saveMasterList(updated);
-    setCompanies(updated);
-    // Refresh the selected company view
-    const refreshed = updated.find(c => c.id === companyId);
-    if (refreshed) setSelectedCompany(refreshed);
   };
 
   const handleDeleteCompany = (companyId) => {
@@ -1123,13 +1195,33 @@ function MasterList() {
     alert(`Added ${companiesToAdd.length} companies to CRM!`);
   };
 
+  // Helper to parse employee count to number
+  const parseEmployeeCount = (str) => {
+    if (!str) return 0;
+    const num = parseInt(str.replace(/[^0-9]/g, ''));
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Helper to parse funding amount to number
+  const parseFundingAmount = (str) => {
+    if (!str) return 0;
+    const cleaned = str.replace(/[$,]/g, '').toUpperCase();
+    let multiplier = 1;
+    if (cleaned.includes('B')) multiplier = 1000000000;
+    else if (cleaned.includes('M')) multiplier = 1000000;
+    else if (cleaned.includes('K')) multiplier = 1000;
+    const num = parseFloat(cleaned.replace(/[^0-9.]/g, ''));
+    return isNaN(num) ? 0 : num * multiplier;
+  };
+
   const filteredCompanies = companies.filter(company => {
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
         company.organizationName?.toLowerCase().includes(search) ||
         company.description?.toLowerCase().includes(search) ||
-        company.nycAddress?.toLowerCase().includes(search);
+        company.nycAddress?.toLowerCase().includes(search) ||
+        company.industry?.toLowerCase().includes(search);
       if (!matchesSearch) return false;
     }
 
@@ -1139,6 +1231,7 @@ function MasterList() {
 
     if (filters.nycOffice) {
       if (filters.nycOffice === 'yes' && company.nycOfficeConfirmed !== 'Yes') return false;
+      if (filters.nycOffice === 'planned' && company.nycOfficeConfirmed !== 'Planned') return false;
       if (filters.nycOffice === 'no' && company.nycOfficeConfirmed === 'Yes') return false;
     }
 
@@ -1147,10 +1240,114 @@ function MasterList() {
       if (filters.fundingStage === 'not_ok' && company.fundingStageOK === '✅ Yes') return false;
     }
 
+    // Company status filter
+    if (filters.companyStatus && company.status !== filters.companyStatus) {
+      return false;
+    }
+
+    // Agent status filter
+    if (filters.agentStatus) {
+      if (filters.agentStatus === 'run' && !company.lastResearchedAt) return false;
+      if (filters.agentStatus === 'not_run' && company.lastResearchedAt) return false;
+      if (filters.agentStatus === 'stale' && (!company.lastResearchedAt || !isDataStale(company.lastResearchedAt))) return false;
+    }
+
+    // Employee count range filter
+    if (filters.employeeRange) {
+      const count = parseEmployeeCount(company.employeeCount);
+      if (filters.employeeRange === '1-50' && (count < 1 || count > 50)) return false;
+      if (filters.employeeRange === '51-200' && (count < 51 || count > 200)) return false;
+      if (filters.employeeRange === '201-1000' && (count < 201 || count > 1000)) return false;
+      if (filters.employeeRange === '1000+' && count < 1000) return false;
+    }
+
+    // Funding range filter
+    if (filters.fundingRange) {
+      const funding = parseFundingAmount(company.totalFunding);
+      if (filters.fundingRange === '<10M' && funding >= 10000000) return false;
+      if (filters.fundingRange === '10M-50M' && (funding < 10000000 || funding > 50000000)) return false;
+      if (filters.fundingRange === '50M+' && funding < 50000000) return false;
+    }
+
     return true;
   });
 
   const selectedCompanies = filteredCompanies.filter(c => selectedIds.has(c.id));
+
+  // Handle bulk delete
+  const handleBulkDelete = () => {
+    const updated = deleteCompaniesFromMasterList([...selectedIds]);
+    setCompanies(updated);
+    setSelectedIds(new Set());
+    setShowDeleteModal(false);
+  };
+
+  // Handle company status change
+  const handleStatusChange = (companyId, newStatus) => {
+    const updated = updateCompanyStatus(companyId, newStatus);
+    setCompanies(updated);
+    // Refresh selected company if it's the one we changed
+    const refreshed = updated.find(c => c.id === companyId);
+    if (refreshed && selectedCompany?.id === companyId) {
+      setSelectedCompany(refreshed);
+    }
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      // Don't trigger if a modal is open
+      if (selectedCompany || showCRMModal || showDeleteModal || agentRunning || agentDossier) return;
+
+      const visibleCompanies = filteredCompanies.slice(0, 100);
+
+      switch (e.key) {
+        case 'j': // Move down
+          e.preventDefault();
+          setFocusedIndex(prev => Math.min(prev + 1, visibleCompanies.length - 1));
+          break;
+        case 'k': // Move up
+          e.preventDefault();
+          setFocusedIndex(prev => Math.max(prev - 1, 0));
+          break;
+        case 'x': // Toggle selection
+          e.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < visibleCompanies.length) {
+            toggleSelect(visibleCompanies[focusedIndex].id);
+          }
+          break;
+        case 'r': // Run agent
+          e.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < visibleCompanies.length) {
+            const company = visibleCompanies[focusedIndex];
+            const domain = getDomain(company.website);
+            if (domain) handleRunAgent(domain, company.id);
+          }
+          break;
+        case 'd': // Delete (with Shift for safety)
+          if (e.shiftKey && selectedIds.size > 0) {
+            e.preventDefault();
+            setShowDeleteModal(true);
+          }
+          break;
+        case 'Enter': // Open company modal
+          e.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < visibleCompanies.length) {
+            setSelectedCompany(visibleCompanies[focusedIndex]);
+          }
+          break;
+        case 'Escape':
+          setFocusedIndex(-1);
+          setSelectedIds(new Set());
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusedIndex, filteredCompanies, selectedCompany, showCRMModal, showDeleteModal, agentRunning, agentDossier, selectedIds]);
 
   return (
     <div className="page fade-in">
@@ -1161,10 +1358,16 @@ function MasterList() {
         </div>
         <div className="header-actions">
           {selectedIds.size > 0 && (
-            <button className="btn btn-primary" onClick={() => setShowCRMModal(true)}>
-              <Users size={18} strokeWidth={1.5} />
-              Add {selectedIds.size} to CRM
-            </button>
+            <>
+              <button className="btn btn-primary" onClick={() => setShowCRMModal(true)}>
+                <Users size={18} strokeWidth={1.5} />
+                Add {selectedIds.size} to CRM
+              </button>
+              <button className="btn btn-danger" onClick={() => setShowDeleteModal(true)}>
+                <Trash2 size={18} strokeWidth={1.5} />
+                Delete {selectedIds.size}
+              </button>
+            </>
           )}
           <QuickAddDomain onAdd={(newCompanies) => {
             const updated = addToMasterList(newCompanies);
@@ -1243,39 +1446,79 @@ function MasterList() {
 
           {showFilters && (
             <div className="filter-panel">
+              {/* Company Status */}
               <select
-                value={filters.prospectStatus}
-                onChange={(e) => setFilters(f => ({ ...f, prospectStatus: e.target.value }))}
+                value={filters.companyStatus}
+                onChange={(e) => setFilters(f => ({ ...f, companyStatus: e.target.value }))}
               >
-                <option value="">All Prospect Statuses</option>
-                <option value="🔥 Hot Prospect">Hot Prospect</option>
-                <option value="👀 Worth a Look">Worth a Look</option>
-                <option value="❄️ Low Priority">Low Priority</option>
-                <option value="❌ Remote Only">Remote Only</option>
-                <option value="❌ No NYC Presence">No NYC Presence</option>
+                <option value="">Status - All</option>
+                {COMPANY_STATUSES.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
               </select>
 
+              {/* NYC Office */}
               <select
                 value={filters.nycOffice}
                 onChange={(e) => setFilters(f => ({ ...f, nycOffice: e.target.value }))}
               >
                 <option value="">NYC Office - All</option>
-                <option value="yes">NYC Office Confirmed</option>
-                <option value="no">NYC Office Not Confirmed</option>
+                <option value="yes">Confirmed</option>
+                <option value="planned">Planned</option>
+                <option value="no">Not Confirmed</option>
               </select>
 
+              {/* Employee Range */}
               <select
-                value={filters.fundingStage}
-                onChange={(e) => setFilters(f => ({ ...f, fundingStage: e.target.value }))}
+                value={filters.employeeRange}
+                onChange={(e) => setFilters(f => ({ ...f, employeeRange: e.target.value }))}
               >
-                <option value="">Funding Stage - All</option>
-                <option value="ok">Funding Stage OK</option>
-                <option value="not_ok">Funding Stage Not OK</option>
+                <option value="">Employees - All</option>
+                <option value="1-50">1-50</option>
+                <option value="51-200">51-200</option>
+                <option value="201-1000">201-1,000</option>
+                <option value="1000+">1,000+</option>
+              </select>
+
+              {/* Total Funding */}
+              <select
+                value={filters.fundingRange}
+                onChange={(e) => setFilters(f => ({ ...f, fundingRange: e.target.value }))}
+              >
+                <option value="">Funding - All</option>
+                <option value="<10M">&lt; $10M</option>
+                <option value="10M-50M">$10M - $50M</option>
+                <option value="50M+">$50M+</option>
+              </select>
+
+              {/* Agent Status */}
+              <select
+                value={filters.agentStatus}
+                onChange={(e) => setFilters(f => ({ ...f, agentStatus: e.target.value }))}
+              >
+                <option value="">Agent - All</option>
+                <option value="run">Agent Run</option>
+                <option value="not_run">Not Run</option>
+                <option value="stale">Stale (&gt;30 days)</option>
+              </select>
+
+              {/* Prospect Status (legacy) */}
+              <select
+                value={filters.prospectStatus}
+                onChange={(e) => setFilters(f => ({ ...f, prospectStatus: e.target.value }))}
+              >
+                <option value="">Prospect - All</option>
+                <option value="🔥 Hot Prospect">Hot Prospect</option>
+                <option value="👀 Worth a Look">Worth a Look</option>
+                <option value="❄️ Low Priority">Low Priority</option>
               </select>
 
               <button
                 className="btn btn-secondary"
-                onClick={() => setFilters({ prospectStatus: '', nycOffice: '', fundingStage: '' })}
+                onClick={() => setFilters({
+                  prospectStatus: '', nycOffice: '', fundingStage: '',
+                  companyStatus: '', agentStatus: '', employeeRange: '', fundingRange: '',
+                })}
               >
                 Clear Filters
               </button>
@@ -1294,12 +1537,13 @@ function MasterList() {
                   <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : `${filteredCompanies.length} companies`}</span>
                 </label>
               </div>
-              <div className="dossier-grid">
-                {filteredCompanies.slice(0, 100).map(company => (
+              <div className="dossier-grid" ref={listRef}>
+                {filteredCompanies.slice(0, 100).map((company, index) => (
                   <DossierCard
                     key={company.id}
                     company={company}
                     isSelected={selectedIds.has(company.id)}
+                    isFocused={focusedIndex === index}
                     onSelect={toggleSelect}
                     onClick={setSelectedCompany}
                   />
@@ -1400,13 +1644,21 @@ function MasterList() {
         <CompanyModal
           company={selectedCompany}
           onClose={() => setSelectedCompany(null)}
-          onEnrich={handleEnrichCompany}
           onDelete={handleDeleteCompany}
           onRunAgent={handleRunAgent}
+          onStatusChange={handleStatusChange}
           onViewDossier={(dossier, companyId) => {
             setAgentDossier(dossier);
             setAgentCompanyId(companyId);
           }}
+        />
+      )}
+
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          count={selectedIds.size}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleBulkDelete}
         />
       )}
 

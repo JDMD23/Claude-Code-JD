@@ -64,6 +64,15 @@ export const PROSPECT_STAGES = [
   { id: 'secondary', name: 'Secondary Prospects' },
 ];
 
+// Company Research Status (for Master List workflow)
+export const COMPANY_STATUSES = [
+  { id: 'new', name: 'New', color: '#6b7280' },
+  { id: 'researching', name: 'Researching', color: '#3b82f6' },
+  { id: 'contacting', name: 'Contacting', color: '#f59e0b' },
+  { id: 'meeting', name: 'Meeting Scheduled', color: '#8b5cf6' },
+  { id: 'not_a_fit', name: 'Not a Fit', color: '#ef4444' },
+];
+
 // Commission Statuses
 export const COMMISSION_STATUSES = [
   { id: 'projected', name: 'Projected' },
@@ -192,14 +201,24 @@ export function saveMasterList(companies) {
 
 export function addToMasterList(companies) {
   const existing = getMasterList();
-  const newCompanies = companies.map(c => ({
-    ...c,
-    id: c.id || uuidv4(),
-    addedAt: new Date().toISOString(),
-  }));
+  const now = new Date().toISOString();
+  const newCompanies = companies.map(c => {
+    const id = c.id || uuidv4();
+    return {
+      ...c,
+      id,
+      status: c.status || 'new',
+      addedAt: now,
+    };
+  });
   const updated = [...existing, ...newCompanies];
   saveData(STORAGE_KEYS.MASTER_LIST, updated);
-  logActivity('companies_imported', `${companies.length} companies imported to Master List`);
+
+  // Log activity for each imported company
+  newCompanies.forEach(c => {
+    logActivity('company_imported', `${c.organizationName || 'Company'} added to Master List`, c.id);
+  });
+
   return updated;
 }
 
@@ -280,7 +299,7 @@ export function saveDossierToCompany(companyId, dossier) {
   }
 
   saveData(STORAGE_KEYS.MASTER_LIST, companies);
-  logActivity('dossier_saved', `Research dossier saved for ${companyName}`);
+  logActivity('agent_completed', `Research agent completed for ${companyName}`, companyId);
 
   return companies;
 }
@@ -545,18 +564,57 @@ export function getActivityLog() {
   return loadData(STORAGE_KEYS.ACTIVITY_LOG, []);
 }
 
-export function logActivity(type, message) {
+export function logActivity(type, message, companyId = null) {
   const activities = getActivityLog();
   activities.unshift({
     id: uuidv4(),
     type,
     message,
+    companyId,  // Optional: link activity to specific company
     timestamp: new Date().toISOString(),
   });
   // Keep only last 100 activities
   const trimmed = activities.slice(0, 100);
   saveData(STORAGE_KEYS.ACTIVITY_LOG, trimmed);
   return trimmed;
+}
+
+// Get activity timeline for a specific company
+export function getCompanyActivities(companyId) {
+  const activities = getActivityLog();
+  return activities.filter(a => a.companyId === companyId);
+}
+
+// Update company status and log the change
+export function updateCompanyStatus(companyId, newStatus) {
+  const companies = getMasterList();
+  const index = companies.findIndex(c => c.id === companyId);
+  if (index === -1) return companies;
+
+  const company = companies[index];
+  const oldStatus = company.status || 'new';
+  const now = new Date().toISOString();
+
+  companies[index] = {
+    ...company,
+    status: newStatus,
+    statusUpdatedAt: now,
+    updatedAt: now,
+  };
+
+  saveData(STORAGE_KEYS.MASTER_LIST, companies);
+  logActivity('status_changed', `Status changed from ${oldStatus} to ${newStatus}`, companyId);
+  return companies;
+}
+
+// Bulk delete companies from Master List
+export function deleteCompaniesFromMasterList(companyIds) {
+  const companies = getMasterList();
+  const toDelete = new Set(companyIds);
+  const remaining = companies.filter(c => !toDelete.has(c.id));
+  saveData(STORAGE_KEYS.MASTER_LIST, remaining);
+  logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
+  return remaining;
 }
 
 // ============ LEASES ============
