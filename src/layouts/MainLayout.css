@@ -6,8 +6,8 @@
 .main-content {
   flex: 1;
   margin-left: var(--sidebar-width);
-  padding: 2rem;
-  transition: margin-left 0.3s ease;
+  padding: clamp(1.5rem, 4vw, 3rem) clamp(2rem, 6vw, 4rem);
+  transition: margin-left var(--duration-normal) var(--ease-out);
   min-height: 100vh;
   background-color: var(--bg-primary);
 }

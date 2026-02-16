@@ -7,17 +7,15 @@
   border-radius: var(--radius-md);
   padding: 0.875rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .deal-card:hover {
   border-color: var(--border-light);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .deal-card.dragging {
-  box-shadow: var(--shadow-lg);
   border-color: var(--accent-primary);
 }
 
@@ -118,7 +116,7 @@
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn var(--duration-fast) var(--ease-out);
 }
 
 .modal {
@@ -129,7 +127,7 @@
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  animation: slideUp 0.3s ease;
+  animation: slideUp var(--duration-normal) var(--ease-out);
 }
 
 @keyframes slideUp {
@@ -166,7 +164,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .modal-close:hover {

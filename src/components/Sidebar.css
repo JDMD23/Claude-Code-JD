@@ -8,7 +8,7 @@
   position: fixed;
   left: 0;
   top: 0;
-  transition: width 0.3s ease;
+  transition: width var(--duration-normal) var(--ease-out);
   z-index: 100;
 }
 
@@ -21,7 +21,6 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1rem;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .logo {
@@ -39,25 +38,26 @@
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
   white-space: nowrap;
 }
 
 .collapse-btn {
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.25rem;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .collapse-btn:hover {
   background-color: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .sidebar.collapsed .collapse-btn {
@@ -67,10 +67,10 @@
 
 .sidebar-nav {
   flex: 1;
-  padding: 1rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.125rem;
   overflow-y: auto;
 }
 
@@ -78,12 +78,15 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: 0.625rem 1rem;
   color: var(--text-secondary);
   text-decoration: none;
   border-radius: var(--radius-md);
-  transition: all 0.2s ease;
+  transition: all var(--duration-fast) var(--ease-out);
   white-space: nowrap;
+  position: relative;
+  border-left: 2px solid transparent;
+  margin-left: 0;
 }
 
 .nav-item:hover {
@@ -92,12 +95,13 @@
 }
 
 .nav-item.active {
-  background-color: var(--accent-primary);
-  color: white;
+  background-color: var(--accent-subtle);
+  color: var(--text-primary);
+  border-left-color: var(--accent-primary);
 }
 
 .nav-item.active .nav-icon {
-  color: white;
+  color: var(--accent-primary);
 }
 
 .nav-icon {
@@ -105,13 +109,18 @@
 }
 
 .nav-label {
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   font-weight: 500;
 }
 
 .sidebar.collapsed .nav-item {
   justify-content: center;
-  padding: 0.75rem;
+  padding: 0.625rem;
+  border-left-color: transparent;
+}
+
+.sidebar.collapsed .nav-item.active {
+  border-left-color: transparent;
 }
 
 .sidebar.collapsed .nav-label {
@@ -124,7 +133,7 @@
 }
 
 .version-text {
-  font-size: 0.75rem;
+  font-size: var(--text-caption);
   color: var(--text-muted);
   text-align: center;
 }
