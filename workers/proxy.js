@@ -169,13 +169,6 @@ Return ONLY this JSON:
     }),
   });
 
-If unsure about a field leave it as empty string. Return ONLY the JSON object, no other text.`,
-        },
-      ],
-      max_tokens: 600,
-    }),
-  });
-
   if (!response.ok) throw new Error(`Perplexity ${response.status}`);
 
   const data = await response.json();
