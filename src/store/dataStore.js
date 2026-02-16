@@ -403,6 +403,95 @@ export function logActivity(type, message) {
   return trimmed;
 }
 
+// ============ PROSPECT → DEAL CONVERSION ============
+export function convertProspectToDeal(prospectId) {
+  const prospects = getProspects();
+  const prospect = prospects.find(p => p.id === prospectId);
+  if (!prospect) throw new Error('Prospect not found');
+
+  const now = new Date().toISOString();
+  const newDeal = {
+    id: uuidv4(),
+    prospectId: prospect.id,
+    companyId: prospect.masterListId || null,
+    clientName: prospect.organizationName,
+    contactName: prospect.contactName || '',
+    contactEmail: prospect.contactEmail || '',
+    stage: 'kickoff',
+    stageHistory: [{ stage: 'kickoff', date: now }],
+    createdAt: now,
+    updatedAt: now,
+    notes: `Converted from prospect on ${new Date().toLocaleDateString()}`,
+  };
+
+  const deals = getDeals();
+  deals.push(newDeal);
+  saveData(STORAGE_KEYS.DEALS, deals);
+
+  // Update prospect
+  const idx = prospects.findIndex(p => p.id === prospectId);
+  prospects[idx].convertedToDealId = newDeal.id;
+  prospects[idx].crmStage = 'clients';
+  saveData(STORAGE_KEYS.PROSPECTS, prospects);
+
+  logActivity('prospect_converted', `${prospect.organizationName} converted to deal`);
+  return { deal: newDeal, deals, prospects };
+}
+
+// ============ AUTO-CREATE COMMISSION FROM DEAL ============
+export function createCommissionFromDeal(dealId) {
+  const deals = getDeals();
+  const deal = deals.find(d => d.id === dealId);
+  if (!deal) throw new Error('Deal not found');
+
+  const existing = getCommissions().find(c => c.dealId === dealId);
+  if (existing) return { commission: existing, alreadyExists: true };
+
+  const commission = {
+    id: uuidv4(),
+    dealId: deal.id,
+    clientName: deal.clientName,
+    squareFootage: deal.squareFootage || '',
+    annualRent: deal.targetBudget || '',
+    leaseTerm: '',
+    commissionRate: '4',
+    status: 'in_contract',
+    calculatedAmount: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    notes: `Auto-created from deal on ${new Date().toLocaleDateString()}`,
+  };
+
+  const commissions = getCommissions();
+  commissions.push(commission);
+  saveData(STORAGE_KEYS.COMMISSIONS, commissions);
+  logActivity('commission_auto_created', `Commission auto-created for ${deal.clientName}`);
+
+  return { commission, alreadyExists: false };
+}
+
+// ============ STALE DEALS ============
+const STALE_THRESHOLDS = {
+  kickoff: 14, touring: 21, loi: 14, negotiation: 30, consent: 21,
+};
+
+export function getStaleDeals() {
+  const deals = getDeals();
+  const now = new Date();
+  return deals.filter(deal => {
+    if (deal.stage === 'closed' || deal.stage === 'lost') return false;
+    if (!deal.stageHistory?.length) return false;
+    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
+    const threshold = STALE_THRESHOLDS[deal.stage];
+    return threshold && days > threshold;
+  }).map(deal => {
+    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
+    return { ...deal, daysInStage: days, threshold: STALE_THRESHOLDS[deal.stage] };
+  });
+}
+
 // ============ RESEARCH AGENT ============
 function getProxyHeaders() {
   const settings = getSettings();

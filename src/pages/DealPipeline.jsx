@@ -3,7 +3,7 @@ import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSi
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, useDroppable, rectIntersection } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES } from '../store/dataStore';
+import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES, createCommissionFromDeal } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 
@@ -351,6 +351,11 @@ function DealPipeline() {
       if (activeDeal && activeDeal.stage !== newStage) {
         const updated = updateDealStage(activeId, newStage);
         setDeals(updated);
+
+        // Auto-create commission when deal moves to closed
+        if (newStage === 'closed') {
+          createCommissionFromDeal(activeId);
+        }
       }
     }
   };
