@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, getSettings, enrichCompany } from '../store/dataStore';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -305,16 +305,14 @@ function CompanyModal({ company, onClose, onEnrich }) {
 
   if (!company) return null;
 
-  const settings = getSettings();
-  const hasApiKeys = settings.apolloApiKey || settings.perplexityApiKey;
   const domain = getDomain(company.website);
 
   const handleEnrich = async () => {
-    if (!domain || !hasApiKeys) return;
+    if (!domain) return;
     setEnriching(true);
     setEnrichResult(null);
     try {
-      const result = await enrichCompany(domain, settings);
+      const result = await enrichCompany(domain);
       const hasData = Object.keys(result).length > 0;
       if (hasData) {
         onEnrich(company.id, result);
@@ -323,7 +321,7 @@ function CompanyModal({ company, onClose, onEnrich }) {
         setEnrichResult({ success: false, message: 'No data found for this domain.' });
       }
     } catch {
-      setEnrichResult({ success: false, message: 'Enrichment failed. Check API keys in Settings.' });
+      setEnrichResult({ success: false, message: 'Enrichment failed.' });
     }
     setEnriching(false);
   };
@@ -362,8 +360,8 @@ function CompanyModal({ company, onClose, onEnrich }) {
                   <button
                     className={`btn btn-secondary btn-sm enrich-btn ${enriching ? 'enriching' : ''}`}
                     onClick={handleEnrich}
-                    disabled={enriching || !hasApiKeys}
-                    title={!hasApiKeys ? 'Add API keys in Settings first' : `Enrich ${domain}`}
+                    disabled={enriching}
+                    title={`Enrich ${domain}`}
                   >
                     {enriching ? <Loader size={14} strokeWidth={1.5} className="spin" /> : <Zap size={14} strokeWidth={1.5} />}
                     {enriching ? 'Enriching...' : 'Enrich'}
@@ -554,6 +552,7 @@ function MasterList() {
       if (c.id !== companyId) return c;
       return {
         ...c,
+        organizationName: enrichData.companyName || c.organizationName,
         description: enrichData.description || c.description,
         employeeCount: enrichData.employeeCount || c.employeeCount,
         industry: enrichData.industry || c.industry,

@@ -27,16 +27,16 @@ function Settings() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await enrichCompany('rogo.ai', settings);
+      const result = await enrichCompany('rogo.ai');
       const hasData = Object.keys(result).length > 0;
       setTestResult({
         success: hasData,
         message: hasData
-          ? `Found: ${result.industry || 'N/A'} | ${result.employeeCount || 'N/A'} employees | ${result.description || 'No description'}`
-          : 'No data returned. Check your API keys.',
+          ? `Found: ${result.companyName || 'N/A'} | ${result.description || 'No description'}`
+          : 'No data returned.',
       });
     } catch {
-      setTestResult({ success: false, message: 'Connection failed. Check your API keys.' });
+      setTestResult({ success: false, message: 'Connection failed.' });
     }
     setTesting(false);
   };
@@ -126,7 +126,7 @@ function Settings() {
           <button
             className="btn btn-secondary"
             onClick={handleTestEnrich}
-            disabled={testing || (!settings.apolloApiKey && !settings.perplexityApiKey)}
+            disabled={testing}
           >
             <Zap size={16} strokeWidth={1.5} />
             {testing ? 'Testing...' : 'Test with rogo.ai'}

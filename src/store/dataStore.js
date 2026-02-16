@@ -477,75 +477,47 @@ export function saveSettings(settings) {
 }
 
 // ============ COMPANY ENRICHMENT ============
-export async function enrichCompany(domain, settings) {
+export async function enrichCompany(domain) {
   const results = {};
+  const companyName = domain.split('.')[0];
 
-  // Perplexity enrichment (AI-powered company research)
-  if (settings?.perplexityApiKey && domain) {
-    try {
-      const response = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${settings.perplexityApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.1-sonar-small-128k-online',
-          messages: [
-            {
-              role: 'user',
-              content: `Give me a brief company profile for ${domain}. Return ONLY valid JSON with these fields: {"industry": "", "employeeCount": "", "description": "", "headquarters": "", "founded": ""}. Keep description under 100 characters.`,
-            },
-          ],
-          max_tokens: 300,
-        }),
-      });
+  // Clearbit Autocomplete API — free, no key needed, works from browser
+  try {
+    const response = await fetch(
+      `https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(companyName)}`
+    );
 
-      if (response.ok) {
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content || '';
-        try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            Object.assign(results, parsed);
-          }
-        } catch {
-          // JSON parse failed, skip
-        }
+    if (response.ok) {
+      const data = await response.json();
+      // Find best match by domain
+      const match = data.find(c => c.domain === domain) || data[0];
+      if (match) {
+        if (match.name) results.companyName = match.name;
+        if (match.domain) results.website = `https://${match.domain}`;
+        if (match.logo) results.logo = match.logo;
       }
-    } catch {
-      // Network error, skip
     }
+  } catch {
+    // Clearbit failed, continue
   }
 
-  // Apollo enrichment (business data)
-  if (settings?.apolloApiKey && domain) {
-    try {
-      const response = await fetch('https://api.apollo.io/v1/organizations/enrich', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Api-Key': settings.apolloApiKey,
-        },
-        body: JSON.stringify({ domain }),
-      });
+  // Wikipedia API — free, CORS-enabled, gets description
+  try {
+    const searchTerm = results.companyName || companyName;
+    const wikiResponse = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`
+    );
 
-      if (response.ok) {
-        const data = await response.json();
-        const org = data.organization;
-        if (org) {
-          if (org.industry) results.industry = results.industry || org.industry;
-          if (org.estimated_num_employees) results.employeeCount = results.employeeCount || String(org.estimated_num_employees);
-          if (org.short_description) results.description = results.description || org.short_description;
-          if (org.linkedin_url) results.linkedinUrl = org.linkedin_url;
-          if (org.founded_year) results.founded = results.founded || String(org.founded_year);
-          if (org.city) results.headquarters = results.headquarters || `${org.city}, ${org.state || ''}`.trim();
-        }
+    if (wikiResponse.ok) {
+      const wikiData = await wikiResponse.json();
+      if (wikiData.extract && wikiData.type !== 'disambiguation') {
+        results.description = wikiData.extract.length > 150
+          ? wikiData.extract.slice(0, 147) + '...'
+          : wikiData.extract;
       }
-    } catch {
-      // Network error, skip
     }
+  } catch {
+    // Wikipedia failed, continue
   }
 
   return results;
