@@ -73,6 +73,15 @@ export const COMPANY_STATUSES = [
   { id: 'not_a_fit', name: 'Not a Fit', color: '#ef4444' },
 ];
 
+// Prospect Tiers for Master List segmentation
+export const PROSPECT_TIERS = [
+  { id: 'tier_1_nyc_seed', name: 'NYC Seed ($4M+)', color: '#22c55e' },
+  { id: 'tier_2_nyc_growth', name: 'NYC Growth (A/B)', color: '#3b82f6' },
+  { id: 'tier_3_sf_expansion', name: 'SF Expansion (B/C)', color: '#f59e0b' },
+  { id: 'tier_4_europe_expansion', name: 'Europe Expansion (C+)', color: '#8b5cf6' },
+  { id: 'all', name: 'All Companies', color: '#6b7280' },
+];
+
 // Commission Statuses
 export const COMMISSION_STATUSES = [
   { id: 'projected', name: 'Projected' },

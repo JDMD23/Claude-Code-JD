@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle, CalendarPlus, Clock, AlertCircle, ChevronRight, Activity } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, COMPANY_STATUSES, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany, updateCompanyStatus, deleteCompaniesFromMasterList, getCompanyActivities, logActivity } from '../store/dataStore';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, COMPANY_STATUSES, PROSPECT_TIERS, runResearchAgent, AGENT_STEPS, saveDossierToCompany, createFollowUpFromContact, getContactsByCompany, updateCompanyStatus, deleteCompaniesFromMasterList, getCompanyActivities, logActivity } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -1045,6 +1045,7 @@ function MasterList() {
   const [isDragging, setIsDragging] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
+  const [activeTab, setActiveTab] = useState('all'); // Prospect tier tab
   const [filters, setFilters] = useState({
     prospectStatus: '',
     nycOffice: '',
@@ -1077,9 +1078,25 @@ function MasterList() {
     const mappedData = mapCompanyData(rawData);
 
     if (mappedData.length > 0) {
-      const updated = addToMasterList(mappedData);
+      // Context-aware tagging: assign prospect_tier based on active tab
+      const tierMapping = {
+        tier_1_nyc_seed: 'tier_1_nyc_seed',
+        tier_2_nyc_growth: 'tier_2_nyc_growth',
+        tier_3_sf_expansion: 'tier_3_sf_expansion',
+        tier_4_europe_expansion: 'tier_4_europe_expansion',
+        all: null, // "All Companies" tab doesn't auto-assign a tier
+      };
+      const prospectTier = tierMapping[activeTab];
+      const taggedData = mappedData.map(company => ({
+        ...company,
+        prospect_tier: prospectTier || company.prospect_tier || null,
+      }));
+
+      const updated = addToMasterList(taggedData);
       setCompanies(updated);
-      alert(`Successfully imported ${mappedData.length} companies!`);
+
+      const tierName = PROSPECT_TIERS.find(t => t.id === activeTab)?.name || 'All Companies';
+      alert(`Successfully imported ${mappedData.length} companies${prospectTier ? ` into ${tierName}` : ''}!`);
     } else {
       alert('No data found in CSV file');
     }
@@ -1215,6 +1232,12 @@ function MasterList() {
   };
 
   const filteredCompanies = companies.filter(company => {
+    // First: Filter by prospect_tier based on active tab
+    // "all" tab shows all companies, other tabs filter by tier
+    if (activeTab !== 'all') {
+      if (company.prospect_tier !== activeTab) return false;
+    }
+
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
@@ -1354,7 +1377,11 @@ function MasterList() {
       <div className="page-header">
         <div>
           <h1>Master List</h1>
-          <p>{companies.length > 0 ? `${companies.length} companies` : 'Your complete company database from Clay exports'}</p>
+          <p>
+            {companies.length > 0
+              ? `${filteredCompanies.length} companies${activeTab !== 'all' ? ` in ${PROSPECT_TIERS.find(t => t.id === activeTab)?.name}` : ''}`
+              : 'Your complete company database from Crunchbase exports'}
+          </p>
         </div>
         <div className="header-actions">
           {selectedIds.size > 0 && (
@@ -1385,6 +1412,30 @@ function MasterList() {
             onChange={(e) => handleFileUpload(e.target.files[0])}
           />
         </div>
+      </div>
+
+      {/* Prospect Tier Tabs */}
+      <div className="tier-tabs">
+        {PROSPECT_TIERS.map(tier => {
+          const count = tier.id === 'all'
+            ? companies.length
+            : companies.filter(c => c.prospect_tier === tier.id).length;
+          return (
+            <button
+              key={tier.id}
+              className={`tier-tab ${activeTab === tier.id ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab(tier.id);
+                setSelectedIds(new Set()); // Clear selection when switching tabs
+                setFocusedIndex(-1);
+              }}
+              style={{ '--tier-color': tier.color }}
+            >
+              <span className="tier-tab-name">{tier.name}</span>
+              <span className="tier-tab-count">{count}</span>
+            </button>
+          );
+        })}
       </div>
 
       {companies.length === 0 ? (

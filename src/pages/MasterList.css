@@ -1016,4 +1016,78 @@
   .filter-panel select {
     width: 100%;
   }
+
+  .tier-tabs {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .tier-tab {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+}
+
+/* ========== PROSPECT TIER TABS ========== */
+
+.tier-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.tier-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.tier-tab:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.tier-tab.active {
+  background-color: var(--bg-tertiary);
+  border-color: var(--tier-color, var(--accent-primary));
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--tier-color, var(--accent-primary));
+}
+
+.tier-tab.active .tier-tab-name {
+  color: var(--tier-color, var(--accent-primary));
+}
+
+.tier-tab-name {
+  font-weight: 600;
+}
+
+.tier-tab-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.125rem 0.375rem;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.tier-tab.active .tier-tab-count {
+  background-color: var(--tier-color, var(--accent-primary));
+  color: white;
 }
