@@ -99,6 +99,7 @@ export default {
 };
 
 async function fetchPerplexity(domain, apiKey) {
+  const today = new Date().toISOString().split('T')[0];
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
@@ -109,31 +110,64 @@ async function fetchPerplexity(domain, apiKey) {
       model: 'llama-3.1-sonar-small-128k-online',
       messages: [
         {
+          role: 'system',
+          content: 'You are an expert Commercial Real Estate & Corporate Intelligence Analyst. Your goal is to gather precise, verified, and up-to-date data on target companies. Return ONLY valid JSON with no additional text.'
+        },
+        {
           role: 'user',
-          content: `I'm a commercial real estate broker researching the company at domain "${domain}" for a potential NYC office space deal. Look up this EXACT company (not similarly named ones) and return ONLY valid JSON with these fields:
+          content: `Research the company at domain "${domain}". Today's date is ${today}.
 
+EXECUTION STEPS:
+
+1. CORPORATE PROFILE
+- Find their Headquarters (city, state)
+- Manhattan Presence: Check if they have a physical office in Manhattan. Provide the EXACT street address (e.g., "123 Park Ave, Floor 10, New York, NY 10001"). If remote or no NYC office, return "N/A"
+- Company Description: 1-2 sentence summary of their business
+
+2. FINANCIALS & SIZE (High Precision)
+- Total Funding: Search Crunchbase, Pitchbook, press releases. Return USD amount like "$50M" or "Undisclosed"
+- Lead Investors: List primary VC firms or institutional backers
+- Employee Count: Avoid broad ranges. Find specific number from Pitchbook, LinkedIn, or 10-K filings. Format: "approximately [Number]"
+
+3. REAL ESTATE NEWS (Time Sensitive)
+- Search: "${domain.split('.')[0]} office lease", "${domain.split('.')[0]} new office NYC", "${domain.split('.')[0]} relocation"
+- Only report news from last 6 months relative to ${today}
+- If no recent news, state: "No significant office lease news in the last 6 months"
+
+4. HIRING INTELLIGENCE
+- Check their careers page or ATS (Ashby, Greenhouse, Lever, Wellfound)
+- Hiring Status: Active or Frozen
+- Volume: Number of open roles
+- Key Roles: List 2-3 specific job titles, prioritize NYC-based roles
+
+Return ONLY this JSON:
 {
   "companyName": "",
-  "description": "one sentence about what the company does",
+  "description": "",
   "industry": "",
   "founded": "",
-  "headquarters": "HQ street address or city, state if exact address unknown",
-  "employeeCount": "number or estimate",
-  "nycAddress": "exact NYC street address like '123 Broadway, New York, NY 10001' or empty if unknown",
-  "nycOfficeConfirmed": "Yes or No or Unknown",
-  "workPolicyQuote": "remote, hybrid, or in-office based on job listings or press",
-  "totalJobs": "approximate open positions",
-  "nycJobs": "approximate NYC-based open positions",
-  "departmentsHiring": "e.g. Engineering, Sales, Operations",
-  "totalFunding": "total funding raised in USD",
-  "lastFundingAmount": "most recent round amount",
-  "lastFundingType": "e.g. Series A, Series B, Seed",
-  "lastFundingDate": "approximate date of last round",
-  "topInvestors": "key investors",
-  "linkedinUrl": "company linkedin URL",
-  "careersUrl": "careers page URL",
-  "keyContacts": "CEO/founder names"
-}
+  "headquarters": "",
+  "nycAddress": "exact street address or N/A",
+  "nycOfficeConfirmed": "Yes/No",
+  "employeeCount": "approximately [number]",
+  "totalFunding": "",
+  "topInvestors": "",
+  "lastFundingType": "",
+  "lastFundingDate": "",
+  "recentLeaseNews": "",
+  "hiringStatus": "Active/Frozen",
+  "totalJobs": "",
+  "nycJobs": "",
+  "keyRolesHiring": "",
+  "linkedinUrl": "",
+  "careersUrl": "",
+  "keyContacts": ""
+}`
+        }
+      ],
+      max_tokens: 800,
+    }),
+  });
 
 If unsure about a field leave it as empty string. Return ONLY the JSON object, no other text.`,
         },

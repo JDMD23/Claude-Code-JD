@@ -395,15 +395,16 @@ function CompanyModal({ company, onClose, onEnrich, onDelete }) {
           <div className="info-section">
             <h4><Users size={16} strokeWidth={1.5} /> Team & Hiring</h4>
             <InfoRow label="Employee Count" value={company.employeeCount} />
-            <InfoRow label="Headcount Filter" value={company.headcountFilter} />
+            <InfoRow label="Hiring Status" value={company.hiringStatus} />
             <InfoRow label="Total Jobs" value={company.totalJobs} />
             <InfoRow label="NYC Jobs" value={company.nycJobs} />
-            <InfoRow label="Remote Jobs" value={company.remoteJobs} />
-            <InfoRow label="Hybrid Jobs" value={company.hybridJobs} />
-            <InfoRow label="In-Office Jobs" value={company.inOfficeJobs} />
-            <InfoRow label="Departments Hiring" value={company.departmentsHiring} />
-            <InfoRow label="Work Policy" value={company.workPolicyQuote} />
+            <InfoRow label="Key Roles Hiring" value={company.departmentsHiring} />
             <InfoRow label="Careers Page" value={company.careersUrl} isLink />
+          </div>
+
+          <div className="info-section">
+            <h4><MapPin size={16} strokeWidth={1.5} /> Real Estate Intel</h4>
+            <InfoRow label="Recent Lease News" value={company.recentLeaseNews} />
           </div>
 
           <div className="info-section">
@@ -579,7 +580,9 @@ function MasterList() {
         workPolicyQuote: enrichData.workPolicyQuote || c.workPolicyQuote,
         totalJobs: enrichData.totalJobs || c.totalJobs,
         nycJobs: enrichData.nycJobs || c.nycJobs,
-        departmentsHiring: enrichData.departmentsHiring || c.departmentsHiring,
+        departmentsHiring: enrichData.departmentsHiring || enrichData.keyRolesHiring || c.departmentsHiring,
+        hiringStatus: enrichData.hiringStatus || c.hiringStatus,
+        recentLeaseNews: enrichData.recentLeaseNews || c.recentLeaseNews,
         careersUrl: enrichData.careersUrl || c.careersUrl,
         totalFunding: enrichData.totalFunding || c.totalFunding,
         lastFundingAmount: enrichData.lastFundingAmount || c.lastFundingAmount,
