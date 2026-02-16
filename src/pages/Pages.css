@@ -671,3 +671,63 @@ input[type="checkbox"] {
 .quick-add-bar input {
   flex: 1;
 }
+
+/* Tier Tabs */
+.tier-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+}
+
+.tier-tab {
+  padding: 0.75rem 1.25rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.15s ease;
+}
+
+.tier-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.tier-tab.active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tier-count {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  min-width: 1.25rem;
+  text-align: center;
+}
+
+.tier-tab.active .tier-count {
+  background: currentColor;
+  color: white;
+  opacity: 0.9;
+}
+
+.tier-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}

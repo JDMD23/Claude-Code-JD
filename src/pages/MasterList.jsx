@@ -6,6 +6,14 @@ import './DealPipeline.css';
 
 const PAGE_SIZE = 50;
 
+const TIERS = [
+  { id: 'tier_1_nyc_seed', label: 'NYC Seed ($4M+)', color: '#22c55e' },
+  { id: 'tier_2_nyc_growth', label: 'NYC Growth (A/B)', color: '#3b82f6' },
+  { id: 'tier_3_sf_expansion', label: 'SF Expansion (B/C)', color: '#f59e0b' },
+  { id: 'tier_4_europe_expansion', label: 'Europe Expansion (C+)', color: '#8b5cf6' },
+  { id: 'all', label: 'All Companies', color: '#6b7280' },
+];
+
 // Get domain from website URL for Clearbit logo
 function getDomain(website) {
   if (!website) return null;
@@ -163,8 +171,44 @@ function mapCompanyData(rawData) {
   }));
 }
 
+// Parse funding string to number
+function parseFundingToNumber(str) {
+  if (!str) return 0;
+  const cleaned = String(str).replace(/[$,\s]/g, '').toUpperCase();
+  const num = parseFloat(cleaned.replace(/[^0-9.]/g, ''));
+  if (isNaN(num)) return 0;
+  if (cleaned.includes('B')) return num * 1000000000;
+  if (cleaned.includes('M')) return num * 1000000;
+  if (cleaned.includes('K')) return num * 1000;
+  return num;
+}
+
+// Auto-assign tier based on HQ location and funding stage
+function autoAssignTier(company) {
+  const hq = (company.headquarters || '').toLowerCase();
+  const fundingType = (company.lastFundingType || '').toLowerCase();
+  const fundingAmount = parseFundingToNumber(company.totalFunding || company.lastFundingAmount || '');
+
+  const isNYC = hq.includes('new york') || hq.includes('nyc') || hq.includes('manhattan') || hq.includes('brooklyn');
+  const isSF = hq.includes('san francisco') || hq.includes('sf') || hq.includes('bay area');
+  const isEurope = ['london', 'berlin', 'paris', 'amsterdam', 'dublin', 'stockholm', 'united kingdom', 'germany', 'france', 'netherlands', 'ireland', 'sweden', 'switzerland', 'spain', 'italy'].some(loc => hq.includes(loc));
+
+  const isSeed = fundingType.includes('seed') || fundingType.includes('pre-seed');
+  const isSeriesA = fundingType.includes('series a');
+  const isSeriesB = fundingType.includes('series b');
+  const isSeriesC = fundingType.includes('series c');
+  const isSeriesDPlus = fundingType.includes('series d') || fundingType.includes('series e') || fundingType.includes('series f');
+
+  if (isNYC && isSeed && fundingAmount >= 4000000) return 'tier_1_nyc_seed';
+  if (isNYC && (isSeriesA || isSeriesB)) return 'tier_2_nyc_growth';
+  if (isSF && (isSeriesB || isSeriesC)) return 'tier_3_sf_expansion';
+  if (isEurope && (isSeriesC || isSeriesDPlus)) return 'tier_4_europe_expansion';
+
+  return null;
+}
+
 // Unified Company Profile Modal with tabs
-function CompanyModal({ company, onClose, onRunAgent, agentStatus }) {
+function CompanyModal({ company, onClose, onRunAgent, agentStatus, onTierChange }) {
   const [activeTab, setActiveTab] = useState('overview');
 
   if (!company) return null;
@@ -260,6 +304,19 @@ function CompanyModal({ company, onClose, onRunAgent, agentStatus }) {
               <InfoRow label="Founded" value={company.foundedYear} />
               <InfoRow label="Employees" value={company.employeeCount || dossier.employeeCount} />
               <InfoRow label="CB Rank" value={company.cbRank} />
+              <div className="info-row">
+                <span className="info-label">Prospect Tier</span>
+                <select
+                  value={company.tier || ''}
+                  onChange={(e) => onTierChange && onTierChange(company.id, e.target.value || null)}
+                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}
+                >
+                  <option value="">Unassigned</option>
+                  {TIERS.filter(t => t.id !== 'all').map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -455,6 +512,7 @@ function MasterList() {
   const [page, setPage] = useState(0);
   const [agentStatus, setAgentStatus] = useState(null); // null | 'running' | 'done' | 'error'
   const [quickAddDomain, setQuickAddDomain] = useState('');
+  const [activeTier, setActiveTier] = useState('all');
   const [filters, setFilters] = useState({
     prospectStatus: '',
     nycOffice: '',
@@ -463,7 +521,21 @@ function MasterList() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setCompanies(getMasterList());
+    let data = getMasterList();
+    // Backfill tiers for companies that don't have one
+    let needsSave = false;
+    data = data.map(c => {
+      if (!c.tier) {
+        const tier = autoAssignTier(c);
+        if (tier) {
+          needsSave = true;
+          return { ...c, tier };
+        }
+      }
+      return c;
+    });
+    if (needsSave) saveMasterList(data);
+    setCompanies(data);
   }, []);
 
   // Handle file upload
@@ -475,7 +547,14 @@ function MasterList() {
 
     const text = await file.text();
     const rawData = parseCSV(text);
-    const mappedData = mapCompanyData(rawData);
+    let mappedData = mapCompanyData(rawData);
+
+    // If user is on a specific tier tab, assign that tier to all imported companies
+    if (activeTier !== 'all') {
+      mappedData = mappedData.map(c => ({ ...c, tier: activeTier }));
+    } else {
+      mappedData = mappedData.map(c => ({ ...c, tier: c.tier || autoAssignTier(c) }));
+    }
 
     if (mappedData.length > 0) {
       const { companies: updated, added, skipped } = addToMasterList(mappedData);
@@ -631,12 +710,19 @@ function MasterList() {
 
   // Filter companies
   const filteredCompanies = companies.filter(company => {
+    // Tier filter (applied first)
+    if (activeTier !== 'all') {
+      if (company.tier !== activeTier) return false;
+    }
+
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
         company.organizationName?.toLowerCase().includes(search) ||
         company.description?.toLowerCase().includes(search) ||
         company.headquarters?.toLowerCase().includes(search) ||
+        company.topInvestors?.toLowerCase().includes(search) ||
+        company.founders?.toLowerCase().includes(search) ||
         company.nycAddress?.toLowerCase().includes(search);
       if (!matchesSearch) return false;
     }
@@ -663,7 +749,19 @@ function MasterList() {
   const pagedCompanies = filteredCompanies.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // Reset page when filters change
-  useEffect(() => { setPage(0); }, [searchTerm, filters]);
+  useEffect(() => { setPage(0); }, [searchTerm, filters, activeTier]);
+
+  // Tier change handler (used by CompanyModal and bulk actions)
+  const handleTierChange = (companyId, newTier) => {
+    const updated = companies.map(c =>
+      c.id === companyId ? { ...c, tier: newTier } : c
+    );
+    saveMasterList(updated);
+    setCompanies(updated);
+    if (selectedCompany && selectedCompany.id === companyId) {
+      setSelectedCompany({ ...selectedCompany, tier: newTier });
+    }
+  };
 
   const selectedCompanies = filteredCompanies.filter(c => selectedIds.has(c.id));
 
@@ -676,10 +774,31 @@ function MasterList() {
         </div>
         <div className="header-actions">
           {selectedIds.size > 0 && (
-            <button className="btn btn-primary" onClick={() => setShowCRMModal(true)}>
-              <Users size={18} />
-              Add {selectedIds.size} to CRM
-            </button>
+            <>
+              <select
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const newTier = e.target.value;
+                  const updated = companies.map(c =>
+                    selectedIds.has(c.id) ? { ...c, tier: newTier } : c
+                  );
+                  saveMasterList(updated);
+                  setCompanies(updated);
+                  setSelectedIds(new Set());
+                  e.target.value = '';
+                }}
+                style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+              >
+                <option value="">Set Tier...</option>
+                {TIERS.filter(t => t.id !== 'all').map(t => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+              <button className="btn btn-primary" onClick={() => setShowCRMModal(true)}>
+                <Users size={18} />
+                Add {selectedIds.size} to CRM
+              </button>
+            </>
           )}
           <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
             <Upload size={18} />
@@ -725,6 +844,26 @@ function MasterList() {
               <Plus size={18} />
               Add
             </button>
+          </div>
+
+          {/* Tier Tabs */}
+          <div className="tier-tabs">
+            {TIERS.map(tier => {
+              const count = tier.id === 'all'
+                ? companies.length
+                : companies.filter(c => c.tier === tier.id).length;
+              return (
+                <button
+                  key={tier.id}
+                  className={`tier-tab ${activeTier === tier.id ? 'active' : ''}`}
+                  onClick={() => { setActiveTier(tier.id); setPage(0); }}
+                  style={activeTier === tier.id ? { borderBottomColor: tier.color, color: tier.color } : {}}
+                >
+                  {tier.label}
+                  <span className="tier-count">{count}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="table-toolbar">
@@ -830,7 +969,16 @@ function MasterList() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                           <CompanyLogo website={company.website} name={company.organizationName} size={32} />
                           <div>
-                            <div>{company.organizationName}</div>
+                            <div>
+                              {company.organizationName}
+                              {company.tier && (
+                                <span
+                                  className="tier-dot"
+                                  style={{ backgroundColor: TIERS.find(t => t.id === company.tier)?.color || '#6b7280' }}
+                                  title={TIERS.find(t => t.id === company.tier)?.label}
+                                />
+                              )}
+                            </div>
                             {company.website && (
                               <span className="text-muted" style={{ fontSize: '0.75rem' }}>
                                 {company.website.replace(/https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')}
@@ -892,6 +1040,7 @@ function MasterList() {
           onClose={() => setSelectedCompany(null)}
           onRunAgent={handleRunAgent}
           agentStatus={agentStatus}
+          onTierChange={handleTierChange}
         />
       )}
 
