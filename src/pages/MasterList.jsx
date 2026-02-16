@@ -101,53 +101,70 @@ function parseCSV(text) {
   return data;
 }
 
+// Parse industries string into an array of tags
+function parseIndustries(industryStr) {
+  if (!industryStr) return [];
+  // Split by comma, semicolon, or pipe and clean up
+  return industryStr
+    .split(/[,;|]/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+}
+
 // Map CSV columns to our data structure (supports Crunchbase export format)
 function mapCompanyData(rawData) {
-  return rawData.map(row => ({
-    // Core identifiers
-    organizationName: row['Tenant name'] || row['Organization Name'] || row['Company Name'] || row['Name'] || '',
-    website: row['website'] || row['Website'] || row['URL'] || '',
-    linkedin: row['LinkedIn'] || row['LinkedIn URL'] || '',
-    crunchbaseUrl: row['CrunchBase URL'] || row['Crunchbase URL'] || '',
-    // Company info
-    headquarters: row['HQ'] || row['Headquarters'] || '',
-    foundedDate: row['founded year'] || row['Founded Date'] || row['Founded'] || '',
-    description: row['description'] || row['Description'] || '',
-    employeeCount: row['number of employees'] || row['Employee Count'] || row['Employees'] || row['Size'] || '',
-    industry: row['Industry'] || '',
-    // Funding
-    totalFunding: row['total funding'] || row['Total Funding Amount (in USD)'] || row['Total Funding'] || '',
-    lastFundingDate: row['last funding date'] || row['Last Funding Date'] || '',
-    lastFundingType: row['last funding type'] || row['Last Funding Type'] || '',
-    lastFundingAmount: row['fast funding amount in USD'] || row['Last Funding Amount (in USD)'] || row['Last Funding Amount'] || '',
-    fundingRounds: row['number of funding rounds'] || row['Number of Funding Rounds'] || row['Funding Rounds'] || '',
-    topInvestors: row['top 5 investors'] || row['Top 5 Investors'] || row['Investors'] || '',
-    leadInvestors: row['lead investors'] || row['Lead Investors'] || '',
-    // People
-    founders: row['founders'] || row['Founders'] || '',
-    keyContacts: row['Key Contacts'] || '',
-    // Hiring
-    careersUrl: row['Careers URL'] || '',
-    totalJobs: row['Total Jobs'] || '',
-    nycJobs: row['NYC Jobs'] || '',
-    remoteJobs: row['Remote Jobs'] || '',
-    hybridJobs: row['Hybrid Jobs'] || '',
-    inOfficeJobs: row['In-Office Jobs'] || '',
-    departmentsHiring: row['Departments Hiring'] || '',
-    workPolicyQuote: row['Work Policy Quote'] || '',
-    // NYC Intel
-    nycOfficeConfirmed: row['NYC Office Confirmed'] || '',
-    nycAddress: row['NYC Address'] || '',
-    // Legacy/scoring fields
-    fundingInRange: row['Funding in Range'] || '',
-    fundingStageOK: row['Funding Stage OK'] || '',
-    headcountFilter: row['Headcount Filter'] || '',
-    excludeRemoteOnly: row['Exclude Remote Only'] || '',
-    prospectScore: row['Prospect Score'] || '',
-    prospectStatus: row['Prospect Status'] || '',
-    // Default status for new imports
-    status: 'new',
-  }));
+  return rawData.map(row => {
+    // Get industries from various possible column names
+    const industryRaw = row['Industries'] || row['Industry'] || row['industries'] || row['industry'] || '';
+    const industriesTags = parseIndustries(industryRaw);
+
+    return {
+      // Core identifiers
+      organizationName: row['Tenant name'] || row['Organization Name'] || row['Company Name'] || row['Name'] || '',
+      website: row['website'] || row['Website'] || row['URL'] || '',
+      linkedin: row['LinkedIn'] || row['LinkedIn URL'] || '',
+      crunchbaseUrl: row['CrunchBase URL'] || row['Crunchbase URL'] || '',
+      // Company info
+      headquarters: row['HQ'] || row['Headquarters'] || row['headquarters'] || '',
+      foundedDate: row['founded year'] || row['Founded Date'] || row['Founded'] || '',
+      description: row['description'] || row['Description'] || '',
+      employeeCount: row['number of employees'] || row['Employee Count'] || row['Employees'] || row['Size'] || '',
+      industry: industriesTags.length > 0 ? industriesTags[0] : '', // Primary industry for backward compat
+      industries: industriesTags, // Array of all industry tags
+      // Funding
+      totalFunding: row['total funding'] || row['Total Funding Amount (in USD)'] || row['Total Funding'] || '',
+      lastFundingDate: row['last funding date'] || row['Last Funding Date'] || '',
+      lastFundingType: row['last funding type'] || row['Last Funding Type'] || '',
+      lastFundingAmount: row['last funding amount in USD'] || row['Last Funding Amount (in USD)'] || row['Last Funding Amount'] || '',
+      fundingRounds: row['number of funding rounds'] || row['Number of Funding Rounds'] || row['Funding Rounds'] || '',
+      topInvestors: row['top 5 investors'] || row['Top 5 Investors'] || row['Investors'] || '',
+      leadInvestors: row['lead investors'] || row['Lead Investors'] || '',
+      // People
+      founders: row['founders'] || row['Founders'] || '',
+      keyContacts: row['Key Contacts'] || '',
+      // Hiring
+      careersUrl: row['Careers URL'] || row['careers URL'] || row['Careers Page'] || '',
+      totalJobs: row['Total Jobs'] || row['total jobs'] || row['Open Jobs'] || '',
+      nycJobs: row['NYC Jobs'] || row['nyc jobs'] || '',
+      remoteJobs: row['Remote Jobs'] || row['remote jobs'] || '',
+      hybridJobs: row['Hybrid Jobs'] || row['hybrid jobs'] || '',
+      inOfficeJobs: row['In-Office Jobs'] || row['in-office jobs'] || '',
+      departmentsHiring: row['Departments Hiring'] || row['departments hiring'] || '',
+      workPolicyQuote: row['Work Policy Quote'] || '',
+      // NYC Intel
+      nycOfficeConfirmed: row['NYC Office Confirmed'] || row['nyc office confirmed'] || '',
+      nycAddress: row['NYC Address'] || row['nyc address'] || '',
+      // Legacy/scoring fields
+      fundingInRange: row['Funding in Range'] || '',
+      fundingStageOK: row['Funding Stage OK'] || '',
+      headcountFilter: row['Headcount Filter'] || '',
+      excludeRemoteOnly: row['Exclude Remote Only'] || '',
+      prospectScore: row['Prospect Score'] || '',
+      prospectStatus: row['Prospect Status'] || '',
+      // Default status for new imports
+      status: 'new',
+    };
+  });
 }
 
 function getProspectBadgeClass(status) {
@@ -157,10 +174,36 @@ function getProspectBadgeClass(status) {
   return 'low';
 }
 
+// Smart funding formatter - handles both raw numbers and strings with M/K/B suffixes
 function formatFunding(amount) {
   if (!amount) return null;
-  const num = parseInt(amount);
+
+  // Convert to string for processing
+  const str = String(amount).trim();
+  if (!str) return null;
+
+  // Remove $ and commas, uppercase for suffix detection
+  const cleaned = str.replace(/[$,]/g, '').toUpperCase();
+
+  // Check if it already has M/B/K suffix - if so, normalize and return
+  if (cleaned.includes('B') || cleaned.includes('M') || cleaned.includes('K')) {
+    const numPart = parseFloat(cleaned.replace(/[^0-9.]/g, ''));
+    if (isNaN(numPart)) return null;
+
+    // Determine suffix and normalize
+    if (cleaned.includes('B')) {
+      return `$${numPart}B`;
+    } else if (cleaned.includes('M')) {
+      return `$${numPart}M`;
+    } else if (cleaned.includes('K')) {
+      return `$${numPart}K`;
+    }
+  }
+
+  // Parse as raw number and format appropriately
+  const num = parseFloat(cleaned.replace(/[^0-9.]/g, ''));
   if (isNaN(num)) return null;
+
   if (num >= 1000000000) return `$${(num / 1000000000).toFixed(1)}B`;
   if (num >= 1000000) return `$${(num / 1000000).toFixed(1)}M`;
   if (num >= 1000) return `$${(num / 1000).toFixed(0)}K`;
@@ -342,11 +385,45 @@ function isDataStale(lastResearchedAt) {
   return new Date(lastResearchedAt).getTime() < thirtyDaysAgo;
 }
 
+// Calculate Open Jobs tier based on seed-stage norms
+function getJobsTier(totalJobs) {
+  const jobs = parseInt(totalJobs) || 0;
+  if (jobs >= 20) return { tier: 1, label: 'Tier 1 - High Growth', color: '#22c55e' };
+  if (jobs >= 10) return { tier: 2, label: 'Tier 2 - Growing', color: '#3b82f6' };
+  if (jobs >= 1) return { tier: 3, label: 'Tier 3 - Early Stage', color: '#f59e0b' };
+  return { tier: 0, label: 'No Open Jobs', color: '#6b7280' };
+}
+
+// Derive founder score from founderProfiles if scorecard shows no data
+function getFounderData(scorecard, founderProfiles) {
+  const baseFounder = scorecard?.founder || { score: 0, maxScore: 3, signal: 'No data on founder' };
+
+  // If we have founder profiles but scorecard says no data, calculate from profiles
+  if (founderProfiles?.length > 0 && (!baseFounder.signal || baseFounder.signal.toLowerCase().includes('no data'))) {
+    const avgPedigree = founderProfiles.reduce((sum, f) => sum + (f.pedigreeScore || 0), 0) / founderProfiles.length;
+    const topPedigree = Math.max(...founderProfiles.map(f => f.pedigreeScore || 0));
+
+    let signal = founderProfiles.length === 1
+      ? `${founderProfiles[0].name} - ${founderProfiles[0].pedigree || 'Background researched'}`
+      : `${founderProfiles.length} founders profiled`;
+
+    return {
+      score: Math.round(avgPedigree),
+      maxScore: 3,
+      signal: signal,
+    };
+  }
+
+  return baseFounder;
+}
+
 // Prospect Scorecard Component
-function ProspectScorecard({ scorecard }) {
+function ProspectScorecard({ scorecard, founderProfiles, totalJobs, topInvestors }) {
   if (!scorecard) return null;
 
-  const { prospectScore, funding, investor, founder } = scorecard;
+  const { prospectScore, funding, investor } = scorecard;
+  const founder = getFounderData(scorecard, founderProfiles);
+  const jobsTier = getJobsTier(totalJobs);
 
   // Color for the overall score
   const getScoreColor = (score) => {
@@ -395,6 +472,27 @@ function ProspectScorecard({ scorecard }) {
           signal={founder.signal}
           color="#a855f7"
         />
+        {/* Open Jobs Dimension */}
+        <div className="score-dimension">
+          <div className="score-dimension-header">
+            <span className="score-dimension-icon" style={{ color: jobsTier.color }}>
+              <Briefcase size={14} strokeWidth={1.5} />
+            </span>
+            <span className="score-dimension-label">Open Jobs</span>
+            <span className="jobs-tier" style={{ backgroundColor: jobsTier.color + '20', color: jobsTier.color }}>
+              {jobsTier.tier > 0 ? `Tier ${jobsTier.tier}` : 'N/A'}
+            </span>
+          </div>
+          <div className="score-dimension-bar">
+            <div
+              className="score-dimension-fill"
+              style={{ width: `${(jobsTier.tier > 0 ? (4 - jobsTier.tier) / 3 : 0) * 100}%`, backgroundColor: jobsTier.color }}
+            />
+          </div>
+          <span className="score-dimension-signal">
+            {totalJobs ? `${totalJobs} open positions` : 'No job data'} - {jobsTier.label}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -419,6 +517,65 @@ function ScoreDimension({ icon, label, score, maxScore, signal, color }) {
         />
       </div>
       <span className="score-dimension-signal">{signal}</span>
+    </div>
+  );
+}
+
+// Known Tier 1 investors (top VCs)
+const TIER_1_INVESTORS = [
+  'a]z', 'sequoia', 'andreessen', 'a16z', 'benchmark', 'accel', 'greylock',
+  'kleiner', 'kpcb', 'lightspeed', 'bessemer', 'index ventures', 'general catalyst',
+  'founders fund', 'first round', 'union square', 'usv', 'spark capital', 'ribbit',
+  'coatue', 'tiger global', 'insight partners', 'y combinator', 'yc', 'nea',
+  'khosla', 'ivp', 'redpoint', 'ggv', 'battery ventures', 'menlo ventures',
+  'emergence', 'felicis', 'thrive capital', 'softbank', 'dst global'
+];
+
+// Tier 2 investors (strong VCs)
+const TIER_2_INVESTORS = [
+  'maverick', 'boldstart', 'lerer hippeau', 'rre', 'greycroft', 'fj labs',
+  'compound', 'contrary', 'initialized', 'craft ventures', 'openview',
+  'wing', 'matrix partners', 'social capital', 'box group', 'susa ventures',
+  'greenoaks', 'forerunner', 'slow ventures', 'cowboy ventures', 'resolute'
+];
+
+// Get investor tier
+function getInvestorTier(name) {
+  const lower = name.toLowerCase();
+  if (TIER_1_INVESTORS.some(t1 => lower.includes(t1))) return 1;
+  if (TIER_2_INVESTORS.some(t2 => lower.includes(t2))) return 2;
+  return 3;
+}
+
+// Investor Scorecard Component - shows top 5 investors with their tiers
+function InvestorScorecard({ investors }) {
+  if (!investors) return null;
+
+  // Parse investors string into array
+  const investorList = investors
+    .split(/[,;]/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+    .slice(0, 5); // Top 5 only
+
+  if (investorList.length === 0) return null;
+
+  return (
+    <div className="investor-scorecard">
+      {investorList.map((investor, idx) => {
+        const tier = getInvestorTier(investor);
+        const tierClass = `tier-${tier}`;
+        const tierLabel = tier === 1 ? 'Tier 1' : tier === 2 ? 'Tier 2' : 'Tier 3';
+        return (
+          <div key={idx} className="investor-item">
+            <span className="investor-name">{investor}</span>
+            <span className={`investor-tier ${tierClass}`}>
+              <Shield size={10} strokeWidth={2} />
+              {tierLabel}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -531,9 +688,11 @@ function FounderProfileCard({ profile }) {
 }
 
 // Company Detail Modal
-function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, onStatusChange }) {
+function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, onStatusChange, onSaveCompany }) {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [showActivityTimeline, setShowActivityTimeline] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedData, setEditedData] = useState({});
   const contacts = getContactsByCompany(company?.id);
   const activities = company?.id ? getCompanyActivities(company.id) : [];
 
@@ -555,6 +714,64 @@ function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, o
     if (onStatusChange) {
       onStatusChange(company.id, newStatus);
     }
+  };
+
+  const handleStartEdit = () => {
+    setEditedData({ ...company });
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEditedData({});
+    setIsEditing(false);
+  };
+
+  const handleSaveEdit = () => {
+    if (onSaveCompany) {
+      onSaveCompany(company.id, editedData);
+    }
+    setIsEditing(false);
+    setEditedData({});
+  };
+
+  const handleFieldChange = (field, value) => {
+    setEditedData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Editable InfoRow component
+  const EditableInfoRow = ({ label, field, value, isLink, isTextarea }) => {
+    const displayValue = isEditing ? (editedData[field] ?? value) : value;
+
+    if (!isEditing && !value) return null;
+
+    return (
+      <div className="info-row">
+        <span className="info-label">{label}</span>
+        {isEditing ? (
+          isTextarea ? (
+            <textarea
+              className="edit-input"
+              value={editedData[field] ?? value ?? ''}
+              onChange={(e) => handleFieldChange(field, e.target.value)}
+              rows={3}
+            />
+          ) : (
+            <input
+              type="text"
+              className="edit-input"
+              value={editedData[field] ?? value ?? ''}
+              onChange={(e) => handleFieldChange(field, e.target.value)}
+            />
+          )
+        ) : isLink && displayValue ? (
+          <a href={displayValue.startsWith('http') ? displayValue : `https://${displayValue}`} target="_blank" rel="noopener noreferrer" className="info-value link">
+            {displayValue} <ExternalLink size={12} />
+          </a>
+        ) : (
+          <span className="info-value">{displayValue || '-'}</span>
+        )}
+      </div>
+    );
   };
 
   const InfoRow = ({ label, value, isLink }) => {
@@ -612,6 +829,37 @@ function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, o
                     Run Agent
                   </button>
                 )}
+
+                {/* Edit button */}
+                {!isEditing ? (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleStartEdit}
+                    title="Edit company profile"
+                  >
+                    <Briefcase size={14} strokeWidth={1.5} />
+                    Edit
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleSaveEdit}
+                      title="Save changes"
+                    >
+                      <Check size={14} strokeWidth={1.5} />
+                      Save
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleCancelEdit}
+                      title="Cancel editing"
+                    >
+                      <X size={14} strokeWidth={1.5} />
+                      Cancel
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -647,37 +895,78 @@ function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, o
 
           <div className="info-section">
             <h4><Building2 size={16} strokeWidth={1.5} /> Company Info</h4>
-            <InfoRow label="Website" value={company.website} isLink />
-            <InfoRow label="LinkedIn" value={company.linkedin} isLink />
-            <InfoRow label="Crunchbase" value={company.crunchbaseUrl} isLink />
-            <InfoRow label="Industry" value={company.industry} />
-            <InfoRow label="Founded" value={company.foundedDate} />
-            <InfoRow label="Headquarters" value={company.headquarters} />
-            <InfoRow label="Description" value={company.description} />
-            <InfoRow label="NYC Address" value={company.nycAddress} />
-            <InfoRow label="NYC Office Confirmed" value={company.nycOfficeConfirmed} />
+            <EditableInfoRow label="Website" field="website" value={company.website} isLink />
+            <EditableInfoRow label="LinkedIn" field="linkedin" value={company.linkedin} isLink />
+            <EditableInfoRow label="Crunchbase" field="crunchbaseUrl" value={company.crunchbaseUrl} isLink />
+            {/* Industry Tags */}
+            {isEditing ? (
+              <div className="info-row">
+                <span className="info-label">Industries</span>
+                <input
+                  type="text"
+                  className="edit-input"
+                  value={editedData.industry ?? company.industry ?? ''}
+                  onChange={(e) => handleFieldChange('industry', e.target.value)}
+                  placeholder="Comma-separated industries"
+                />
+              </div>
+            ) : (company.industries?.length > 0 || company.industry) && (
+              <div className="info-row">
+                <span className="info-label">Industries</span>
+                <div className="industry-tags">
+                  {company.industries?.length > 0 ? (
+                    company.industries.map((ind, idx) => (
+                      <span key={idx} className="industry-tag">{ind}</span>
+                    ))
+                  ) : company.industry ? (
+                    <span className="industry-tag">{company.industry}</span>
+                  ) : null}
+                </div>
+              </div>
+            )}
+            <EditableInfoRow label="Founded" field="foundedDate" value={company.foundedDate} />
+            <EditableInfoRow label="Headquarters" field="headquarters" value={company.headquarters} />
+            <EditableInfoRow label="Description" field="description" value={company.description} isTextarea />
+            <EditableInfoRow label="NYC Address" field="nycAddress" value={company.nycAddress} />
+            {isEditing ? (
+              <div className="info-row">
+                <span className="info-label">NYC Office Confirmed</span>
+                <select
+                  className="edit-input"
+                  value={editedData.nycOfficeConfirmed ?? company.nycOfficeConfirmed ?? ''}
+                  onChange={(e) => handleFieldChange('nycOfficeConfirmed', e.target.value)}
+                >
+                  <option value="">Unknown</option>
+                  <option value="Yes">Yes</option>
+                  <option value="Planned">Planned</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+            ) : (
+              <InfoRow label="NYC Office Confirmed" value={company.nycOfficeConfirmed} />
+            )}
           </div>
 
           <div className="info-section">
             <h4><Users size={16} strokeWidth={1.5} /> Team & Hiring</h4>
-            <InfoRow label="Employee Count" value={company.employeeCount} />
-            <InfoRow label="Founders" value={company.founders} />
-            <InfoRow label="Hiring Status" value={company.hiringStatus} />
-            <InfoRow label="Total Jobs" value={company.totalJobs} />
-            <InfoRow label="NYC Jobs" value={company.nycJobs} />
-            <InfoRow label="Key Roles Hiring" value={company.departmentsHiring} />
-            <InfoRow label="Careers Page" value={company.careersUrl} isLink />
+            <EditableInfoRow label="Employee Count" field="employeeCount" value={company.employeeCount} />
+            <EditableInfoRow label="Founders" field="founders" value={company.founders} />
+            <EditableInfoRow label="Hiring Status" field="hiringStatus" value={company.hiringStatus} />
+            <EditableInfoRow label="Total Jobs" field="totalJobs" value={company.totalJobs} />
+            <EditableInfoRow label="NYC Jobs" field="nycJobs" value={company.nycJobs} />
+            <EditableInfoRow label="Key Roles Hiring" field="departmentsHiring" value={company.departmentsHiring} />
+            <EditableInfoRow label="Careers Page" field="careersUrl" value={company.careersUrl} isLink />
           </div>
 
           <div className="info-section">
             <h4><DollarSign size={16} strokeWidth={1.5} /> Funding</h4>
-            <InfoRow label="Total Funding" value={company.totalFunding ? formatFunding(company.totalFunding) : ''} />
-            <InfoRow label="Last Funding Amount" value={company.lastFundingAmount ? formatFunding(company.lastFundingAmount) : ''} />
-            <InfoRow label="Last Funding Type" value={company.lastFundingType} />
-            <InfoRow label="Last Funding Date" value={company.lastFundingDate} />
-            <InfoRow label="Funding Rounds" value={company.fundingRounds} />
-            <InfoRow label="Top Investors" value={company.topInvestors} />
-            <InfoRow label="Lead Investors" value={company.leadInvestors} />
+            <EditableInfoRow label="Total Funding" field="totalFunding" value={company.totalFunding} />
+            <EditableInfoRow label="Last Funding Amount" field="lastFundingAmount" value={company.lastFundingAmount} />
+            <EditableInfoRow label="Last Funding Type" field="lastFundingType" value={company.lastFundingType} />
+            <EditableInfoRow label="Last Funding Date" field="lastFundingDate" value={company.lastFundingDate} />
+            <EditableInfoRow label="Funding Rounds" field="fundingRounds" value={company.fundingRounds} />
+            <EditableInfoRow label="Top Investors" field="topInvestors" value={company.topInvestors} />
+            <EditableInfoRow label="Lead Investors" field="leadInvestors" value={company.leadInvestors} />
             <InfoRow label="Funding in Range" value={company.fundingInRange} />
             <InfoRow label="Funding Stage OK" value={company.fundingStageOK} />
           </div>
@@ -686,7 +975,20 @@ function CompanyModal({ company, onClose, onDelete, onRunAgent, onViewDossier, o
           {(company.scorecard || dossier?.scorecard) && (
             <div className="info-section">
               <h4><Star size={16} strokeWidth={1.5} /> Prospect Scorecard</h4>
-              <ProspectScorecard scorecard={company.scorecard || dossier?.scorecard} />
+              <ProspectScorecard
+                scorecard={company.scorecard || dossier?.scorecard}
+                founderProfiles={company.founderProfiles || dossier?.founderProfiles}
+                totalJobs={company.totalJobs}
+                topInvestors={company.topInvestors}
+              />
+            </div>
+          )}
+
+          {/* Top Investors Scorecard */}
+          {company.topInvestors && (
+            <div className="info-section">
+              <h4><Shield size={16} strokeWidth={1.5} /> Top Investors</h4>
+              <InvestorScorecard investors={company.topInvestors} />
             </div>
           )}
 
@@ -1565,6 +1867,42 @@ function MasterList() {
     }
   };
 
+  // Handle company profile save
+  const handleSaveCompany = (companyId, editedData) => {
+    const updatedCompanies = companies.map(c => {
+      if (c.id === companyId) {
+        // Parse industries if edited
+        const newData = { ...c, ...editedData };
+        if (editedData.industry && typeof editedData.industry === 'string') {
+          newData.industries = parseIndustries(editedData.industry);
+        }
+        return newData;
+      }
+      return c;
+    });
+    saveMasterList(updatedCompanies);
+    setCompanies(updatedCompanies);
+    // Refresh selected company
+    const refreshed = updatedCompanies.find(c => c.id === companyId);
+    if (refreshed) setSelectedCompany(refreshed);
+    logActivity('company_updated', `Company profile updated: ${refreshed?.organizationName}`, companyId);
+  };
+
+  // Bulk Run Agent on selected companies
+  const handleBulkRunAgent = async () => {
+    const selectedCompanyList = companies.filter(c => selectedIds.has(c.id));
+    if (selectedCompanyList.length === 0) return;
+
+    // Run agent on first company, queue the rest
+    for (const company of selectedCompanyList) {
+      const domain = getDomain(company.website);
+      if (domain) {
+        await handleRunAgent(domain, company.id);
+      }
+    }
+    setSelectedIds(new Set());
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1863,6 +2201,33 @@ function MasterList() {
                   />
                   <span>{selectedIds.size > 0 ? `${selectedIds.size} selected` : `${filteredCompanies.length} companies`}</span>
                 </label>
+                {/* Bulk action buttons */}
+                {selectedIds.size > 0 && (
+                  <div className="bulk-actions">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleBulkRunAgent}
+                      title="Run research agent on selected companies"
+                    >
+                      <Bot size={14} strokeWidth={1.5} />
+                      Run Agent ({selectedIds.size})
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowCRMModal(true)}
+                    >
+                      <Plus size={14} strokeWidth={1.5} />
+                      Add to CRM
+                    </button>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => setShowDeleteModal(true)}
+                    >
+                      <Trash2 size={14} strokeWidth={1.5} />
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="dossier-grid" ref={listRef}>
                 {filteredCompanies.slice(0, 100).map((company, index) => (
@@ -1979,6 +2344,7 @@ function MasterList() {
           onDelete={handleDeleteCompany}
           onRunAgent={handleRunAgent}
           onStatusChange={handleStatusChange}
+          onSaveCompany={handleSaveCompany}
           onViewDossier={(dossier, companyId) => {
             setAgentDossier(dossier);
             setAgentCompanyId(companyId);
