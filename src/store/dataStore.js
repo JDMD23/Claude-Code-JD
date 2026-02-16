@@ -711,6 +711,7 @@ const DEFAULT_SETTINGS = {
   perplexityApiKey: '',
   tavilyApiKey: '',
   firecrawlApiKey: '',
+  anthropicApiKey: '',
   autoEnrich: false,
   enrichFields: ['industry', 'employeeCount', 'description', 'linkedinUrl'],
 };
@@ -795,6 +796,72 @@ export async function runResearchAgent(domain, onProgress) {
   if (onProgress) onProgress({ step: 6, total: 6, message: 'Research complete!' });
 
   return dossier;
+}
+
+// ============ CLAUDE CHAT ============
+export async function sendChatMessage(messages, context = {}) {
+  const settings = getSettings();
+
+  if (!settings.proxyUrl || !settings.anthropicApiKey) {
+    throw new Error('Configure Proxy URL and Anthropic API key in Settings.');
+  }
+
+  const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
+
+  const response = await fetch(`${proxyUrl}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages,
+      context,
+      anthropicApiKey: settings.anthropicApiKey,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Chat returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
+}
+
+// Get context for chat based on current view
+export function getChatContext(type, data) {
+  const baseContext = {
+    deals: getDeals(),
+    prospects: getProspects(),
+    followUps: getFollowUps().filter(f => !f.completed),
+    staleDeals: getStaleDeals(),
+  };
+
+  if (type === 'company' && data) {
+    return {
+      ...baseContext,
+      currentCompany: data,
+      contacts: getContactsByCompany(data.id),
+    };
+  }
+
+  if (type === 'deal' && data) {
+    return {
+      ...baseContext,
+      currentDeal: data,
+    };
+  }
+
+  if (type === 'prospect' && data) {
+    return {
+      ...baseContext,
+      currentProspect: data,
+    };
+  }
+
+  return baseContext;
 }
 
 // ============ STALE DEALS DETECTION ============

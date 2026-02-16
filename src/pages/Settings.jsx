@@ -11,6 +11,7 @@ function Settings() {
   const [showPerplexity, setShowPerplexity] = useState(false);
   const [showTavily, setShowTavily] = useState(false);
   const [showFirecrawl, setShowFirecrawl] = useState(false);
+  const [showAnthropic, setShowAnthropic] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
 
@@ -180,6 +181,29 @@ function Settings() {
               type="button"
             >
               {showFirecrawl ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="api-key-group">
+          <label className="api-key-label">
+            <span>Claude API Key</span>
+            <span className="api-key-hint">AI assistant for drafting emails, analyzing deals (console.anthropic.com)</span>
+          </label>
+          <div className="api-key-input-wrap">
+            <input
+              type={showAnthropic ? 'text' : 'password'}
+              value={settings.anthropicApiKey || ''}
+              onChange={(e) => handleChange('anthropicApiKey', e.target.value)}
+              placeholder="Enter your Anthropic API key (sk-ant-...)..."
+              className="api-key-input"
+            />
+            <button
+              className="icon-btn"
+              onClick={() => setShowAnthropic(!showAnthropic)}
+              type="button"
+            >
+              {showAnthropic ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
             </button>
           </div>
         </div>

@@ -217,6 +217,55 @@ export default {
         return jsonResponse(dossier);
       }
 
+      // POST /chat — Claude AI assistant with context
+      if (path === '/chat' && request.method === 'POST') {
+        const body = await request.json();
+        const { messages, context, anthropicApiKey } = body;
+
+        if (!anthropicApiKey) {
+          return jsonResponse({ error: 'anthropicApiKey is required' }, 400);
+        }
+
+        if (!messages || !Array.isArray(messages)) {
+          return jsonResponse({ error: 'messages array is required' }, 400);
+        }
+
+        // Build system prompt with context
+        const systemPrompt = buildChatSystemPrompt(context);
+
+        // Call Claude API
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': anthropicApiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: messages.map(m => ({
+              role: m.role,
+              content: m.content,
+            })),
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          return jsonResponse({ error: `Claude API error: ${response.status}` }, response.status);
+        }
+
+        const data = await response.json();
+        const assistantMessage = data.content?.[0]?.text || '';
+
+        return jsonResponse({
+          message: assistantMessage,
+          usage: data.usage,
+        });
+      }
+
       // Health check
       if (path === '/' || path === '/health') {
         return jsonResponse({ status: 'ok', service: 'dealflow-proxy' });
@@ -808,6 +857,86 @@ Return JSON only:
     return { email: `Subject: ${parsed.subject}\n\n${parsed.email}` };
   }
   return { email: '' };
+}
+
+// Build system prompt for Claude chat with DealFlow context
+function buildChatSystemPrompt(context = {}) {
+  let prompt = `You are an AI assistant for DealFlow, a commercial real estate broker's CRM and prospecting tool.
+Your job is to help the broker be more productive by:
+- Drafting personalized outreach emails
+- Summarizing company research and dossiers
+- Analyzing deals and prospects
+- Providing strategic advice on the pipeline
+- Answering questions about their data
+
+Be concise, professional, and actionable. When drafting emails, be personalized and avoid generic sales language.
+`;
+
+  // Add context about current data
+  if (context.deals && context.deals.length > 0) {
+    prompt += `\n\nCURRENT PIPELINE: ${context.deals.length} active deals`;
+    const byStage = {};
+    context.deals.forEach(d => {
+      byStage[d.stage] = (byStage[d.stage] || 0) + 1;
+    });
+    prompt += ` (${Object.entries(byStage).map(([k,v]) => `${k}: ${v}`).join(', ')})`;
+  }
+
+  if (context.staleDeals && context.staleDeals.length > 0) {
+    prompt += `\n\nATTENTION NEEDED: ${context.staleDeals.length} stale deals require action`;
+  }
+
+  if (context.followUps && context.followUps.length > 0) {
+    prompt += `\n\nPENDING FOLLOW-UPS: ${context.followUps.length} follow-ups scheduled`;
+  }
+
+  // Add current company context if viewing a specific company
+  if (context.currentCompany) {
+    const c = context.currentCompany;
+    prompt += `\n\nCURRENT COMPANY CONTEXT:
+Company: ${c.organizationName || 'Unknown'}
+Industry: ${c.industry || 'Unknown'}
+Employees: ${c.employeeCount || 'Unknown'}
+HQ: ${c.headquarters || 'Unknown'}
+NYC Address: ${c.nycAddress || 'Not found'}
+Funding: ${c.totalFunding || 'Unknown'}
+Hiring: ${c.hiringStatus || 'Unknown'}, ${c.totalJobs || '?'} open roles
+Last Researched: ${c.lastResearchedAt || 'Never'}`;
+
+    if (context.contacts && context.contacts.length > 0) {
+      prompt += `\nKey Contacts: ${context.contacts.map(ct => `${ct.name} (${ct.title})`).join(', ')}`;
+    }
+
+    if (c.lastDossier) {
+      if (c.lastDossier.recentNews && c.lastDossier.recentNews.length > 0) {
+        prompt += `\nRecent News: ${c.lastDossier.recentNews.map(n => n.title).join('; ')}`;
+      }
+    }
+  }
+
+  // Add current deal context if viewing a specific deal
+  if (context.currentDeal) {
+    const d = context.currentDeal;
+    prompt += `\n\nCURRENT DEAL CONTEXT:
+Client: ${d.clientName}
+Stage: ${d.stage}
+Contact: ${d.contactName || 'Unknown'} (${d.contactEmail || 'no email'})
+Square Footage: ${d.squareFootage || 'TBD'}
+Target Budget: ${d.targetBudget || 'TBD'}
+Notes: ${d.notes || 'None'}`;
+  }
+
+  // Add current prospect context
+  if (context.currentProspect) {
+    const p = context.currentProspect;
+    prompt += `\n\nCURRENT PROSPECT CONTEXT:
+Organization: ${p.organizationName}
+CRM Stage: ${p.crmStage}
+Contact: ${p.contactName || 'Unknown'}
+Status: ${p.prospectStatus || 'Unknown'}`;
+  }
+
+  return prompt;
 }
 
 function jsonResponse(data, status = 200) {
