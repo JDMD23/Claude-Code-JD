@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Users, DollarSign, Bell, Kanban, Clock, ArrowRight, Activity, AlertTriangle, CheckCircle2, Building2, Gauge, Timer, Target } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Bell, Kanban, Clock, ArrowRight, Activity, AlertTriangle, CheckCircle2, Building2, Gauge, Timer, Target, AlertCircle, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getDashboardStats, getPipelineVelocity, DEAL_STAGES } from '../store/dataStore';
 import './Pages.css';
@@ -102,6 +102,58 @@ function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Proactive Alerts Section */}
+      {(stats.staleDeals?.length > 0 || stats.attentionDeals?.length > 0) && (
+        <div className="alerts-section">
+          <h3 className="alerts-header">
+            <Zap size={18} strokeWidth={1.5} />
+            Needs Your Attention
+          </h3>
+          <div className="alerts-grid">
+            {stats.staleDeals?.slice(0, 3).map(deal => (
+              <div
+                key={deal.id}
+                className="alert-card stale"
+                onClick={() => navigate('/pipeline')}
+              >
+                <div className="alert-icon">
+                  <AlertTriangle size={16} strokeWidth={2} />
+                </div>
+                <div className="alert-content">
+                  <span className="alert-title">{deal.clientName}</span>
+                  <span className="alert-detail">
+                    Stuck in <strong>{deal.stageName}</strong> for {deal.daysInStage} days
+                  </span>
+                  <span className="alert-action">
+                    {deal.overBy} days overdue — needs movement
+                  </span>
+                </div>
+              </div>
+            ))}
+            {stats.attentionDeals?.slice(0, 2).map(deal => (
+              <div
+                key={deal.id}
+                className="alert-card warning"
+                onClick={() => navigate('/pipeline')}
+              >
+                <div className="alert-icon">
+                  <AlertCircle size={16} strokeWidth={2} />
+                </div>
+                <div className="alert-content">
+                  <span className="alert-title">{deal.clientName}</span>
+                  <span className="alert-detail">
+                    In <strong>{deal.stageName}</strong> for {deal.daysInStage} days
+                  </span>
+                  <span className="alert-action">
+                    Will go stale in {deal.daysUntilStale} days
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         {/* Pipeline Snapshot */}

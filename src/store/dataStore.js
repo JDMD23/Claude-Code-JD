@@ -712,6 +712,82 @@ export async function runResearchAgent(domain, onProgress) {
   return dossier;
 }
 
+// ============ STALE DEALS DETECTION ============
+// Deals sitting too long in a stage need attention
+const STALE_THRESHOLDS = {
+  kickoff: 14,      // 2 weeks in kickoff is stale
+  touring: 21,      // 3 weeks touring is stale
+  loi: 14,          // 2 weeks in LOI is stale
+  negotiation: 30,  // 1 month negotiating is stale
+  consent: 21,      // 3 weeks in consent is stale
+  on_hold: 30,      // 1 month on hold - reminder
+};
+
+export function getStaleDeals() {
+  const deals = getDeals();
+  const now = new Date();
+  const staleDeals = [];
+
+  deals.forEach(deal => {
+    // Skip closed, lost deals
+    if (deal.stage === 'closed' || deal.stage === 'lost') return;
+
+    // Get days in current stage
+    if (!deal.stageHistory || deal.stageHistory.length === 0) return;
+    const lastStageChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const stageDate = new Date(lastStageChange.date);
+    const daysInStage = Math.floor((now - stageDate) / (1000 * 60 * 60 * 24));
+
+    // Check against threshold
+    const threshold = STALE_THRESHOLDS[deal.stage];
+    if (threshold && daysInStage > threshold) {
+      staleDeals.push({
+        ...deal,
+        daysInStage,
+        threshold,
+        overBy: daysInStage - threshold,
+        stageName: DEAL_STAGES.find(s => s.id === deal.stage)?.name || deal.stage,
+      });
+    }
+  });
+
+  // Sort by most overdue first
+  return staleDeals.sort((a, b) => b.overBy - a.overBy);
+}
+
+// Get deals needing attention (approaching stale threshold)
+export function getDealsNeedingAttention() {
+  const deals = getDeals();
+  const now = new Date();
+  const attentionDeals = [];
+
+  deals.forEach(deal => {
+    // Skip closed, lost deals
+    if (deal.stage === 'closed' || deal.stage === 'lost') return;
+
+    if (!deal.stageHistory || deal.stageHistory.length === 0) return;
+    const lastStageChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const stageDate = new Date(lastStageChange.date);
+    const daysInStage = Math.floor((now - stageDate) / (1000 * 60 * 60 * 24));
+
+    const threshold = STALE_THRESHOLDS[deal.stage];
+    if (!threshold) return;
+
+    // Flag if within 5 days of threshold (warning zone)
+    const daysUntilStale = threshold - daysInStage;
+    if (daysUntilStale > 0 && daysUntilStale <= 5) {
+      attentionDeals.push({
+        ...deal,
+        daysInStage,
+        daysUntilStale,
+        stageName: DEAL_STAGES.find(s => s.id === deal.stage)?.name || deal.stage,
+      });
+    }
+  });
+
+  return attentionDeals.sort((a, b) => a.daysUntilStale - b.daysUntilStale);
+}
+
 // ============ DASHBOARD STATS ============
 export function getDashboardStats() {
   const deals = getDeals();
@@ -792,5 +868,8 @@ export function getDashboardStats() {
       thisWeekList: thisWeekFollowUps.slice(0, 10),
     },
     recentActivity: getActivityLog().slice(0, 10),
+    // Proactive alerts
+    staleDeals: getStaleDeals(),
+    attentionDeals: getDealsNeedingAttention(),
   };
 }

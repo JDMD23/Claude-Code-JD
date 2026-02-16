@@ -301,3 +301,114 @@
   background-color: rgba(234, 179, 8, 0.15);
   color: var(--status-yellow);
 }
+
+/* Proactive Alerts Section */
+.alerts-section {
+  margin-bottom: 1.5rem;
+}
+
+.alerts-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-h3);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.alerts-header svg {
+  color: var(--status-yellow);
+}
+
+.alerts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.alert-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.875rem;
+  display: flex;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.alert-card:hover {
+  border-color: var(--border-light);
+  transform: translateY(-1px);
+}
+
+.alert-card.stale {
+  border-left: 3px solid var(--status-red);
+}
+
+.alert-card.stale .alert-icon {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: var(--status-red);
+}
+
+.alert-card.warning {
+  border-left: 3px solid var(--status-yellow);
+}
+
+.alert-card.warning .alert-icon {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: var(--status-yellow);
+}
+
+.alert-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.alert-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.alert-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alert-detail {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.alert-detail strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.alert-action {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.alert-card.stale .alert-action {
+  color: var(--status-red);
+  font-weight: 500;
+}
+
+.alert-card.warning .alert-action {
+  color: var(--status-yellow);
+}
