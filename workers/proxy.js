@@ -236,10 +236,10 @@ export default {
           };
         }
 
-        // STEP 4: Recent News Search
+        // STEP 4: Recent News Search (domain-anchored + relevance validation)
         if (tavilyApiKey) {
           try {
-            const newsData = await fetchRecentNews(companyName, tavilyApiKey);
+            const newsData = await fetchRecentNews(companyName, domain, tavilyApiKey, dossier, perplexityApiKey);
             dossier.recentNews = newsData.articles || [];
           } catch {}
         }
@@ -799,27 +799,73 @@ Return ONLY this JSON (no other text):
 }
 
 // Agent helper: Recent news search via Tavily - focused on growth signals
-async function fetchRecentNews(companyName, apiKey) {
-  // Search for growth signals: funding, new product, expansion, leadership, office moves
-  const growthQuery = `"${companyName}" (funding OR "series" OR "raised" OR "investment" OR "new product" OR "launch" OR "expansion" OR "new office" OR "new hire" OR "CEO" OR "leadership" OR "growth" OR "acquisition" OR "partnership")`;
+// Now takes full company context for relevance validation
+async function fetchRecentNews(companyName, domain, apiKey, companyContext, perplexityApiKey) {
+  // Build known identifiers for cross-reference validation
+  const identifiers = {
+    domain: domain.toLowerCase(),
+    companyName: companyName.toLowerCase(),
+    ceoName: '',
+    industry: '',
+    description: '',
+  };
 
-  const response = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: growthQuery,
-      search_depth: 'advanced',
-      include_answer: false,
-      max_results: 8,
-      include_raw_content: false,
-    }),
-  });
+  if (companyContext) {
+    // Extract CEO/Founder name from contacts
+    const ceo = (companyContext.contacts || []).find(c =>
+      c.title && /ceo|founder|co-founder|cofounder|chief executive/i.test(c.title)
+    );
+    if (ceo) identifiers.ceoName = ceo.name.toLowerCase();
+    identifiers.industry = (companyContext.company?.industry || '').toLowerCase();
+    identifiers.description = (companyContext.company?.description || '').toLowerCase();
+  }
 
-  if (!response.ok) throw new Error(`Tavily ${response.status}`);
-  const data = await response.json();
+  // Run multiple targeted search queries in parallel for better coverage
+  const queries = [
+    // Query 1: Domain-anchored growth signals
+    `site:${domain} OR "${companyName}" "${domain}" (funding OR expansion OR "new office" OR "raised" OR "series" OR "new product")`,
+    // Query 2: Company name + CEO anchor (if available)
+    identifiers.ceoName
+      ? `"${companyName}" "${identifiers.ceoName}" news`
+      : `"${companyName}" ${domain} news ${new Date().getFullYear()}`,
+    // Query 3: Industry-contextualized search
+    `"${companyName}" (funding OR raised OR series OR acquisition OR partnership OR launch) ${identifiers.industry ? identifiers.industry.split(' ').slice(0, 2).join(' ') : ''}`.trim(),
+  ];
 
-  const articles = (data.results || []).map(r => {
+  // Run all queries in parallel
+  const searchPromises = queries.map(query =>
+    fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: 'advanced',
+        include_answer: false,
+        max_results: 5,
+        include_raw_content: false,
+      }),
+    })
+    .then(r => r.ok ? r.json() : { results: [] })
+    .catch(() => ({ results: [] }))
+  );
+
+  const searchResults = await Promise.all(searchPromises);
+
+  // Merge all results and deduplicate by URL
+  const seenUrls = new Set();
+  const allResults = [];
+  for (const data of searchResults) {
+    for (const r of (data.results || [])) {
+      if (r.url && !seenUrls.has(r.url)) {
+        seenUrls.add(r.url);
+        allResults.push(r);
+      }
+    }
+  }
+
+  // Process each article: extract date, categorize, and score relevance
+  const articles = allResults.map(r => {
     // Extract or estimate date from the result
     let publishedDate = r.published_date || r.publishedDate || null;
 
@@ -839,7 +885,7 @@ async function fetchRecentNews(companyName, apiKey) {
       }
     }
 
-    // Fallback 2: Try to extract date from URL (common pattern: /2025/01/15/ or /2025-01-15)
+    // Fallback 2: Try to extract date from URL
     if (!publishedDate && r.url) {
       const urlDateMatch = r.url.match(/\/(\d{4})\/(\d{2})\/(\d{2})\//);
       if (urlDateMatch) {
@@ -852,7 +898,7 @@ async function fetchRecentNews(companyName, apiKey) {
       }
     }
 
-    // Categorize the news type based on content — focused on growth signals
+    // Categorize the news type based on content
     const textContent = (r.title + ' ' + (r.content || '')).toLowerCase();
     let newsType = 'Company News';
     if (textContent.includes('funding') || textContent.includes('raised') || textContent.includes('series') || textContent.includes('investment') || textContent.includes('round')) {
@@ -878,6 +924,64 @@ async function fetchRecentNews(companyName, apiKey) {
       } catch { sortDate = 0; }
     }
 
+    // --- RELEVANCE SCORING ---
+    // Cross-reference article against known company identifiers
+    const titleLower = (r.title || '').toLowerCase();
+    const snippetLower = (r.content || '').toLowerCase();
+    const urlLower = (r.url || '').toLowerCase();
+    const fullText = titleLower + ' ' + snippetLower + ' ' + urlLower;
+
+    let relevance_confidence = 'low';
+    const matchReasons = [];
+
+    // HIGH: domain appears in URL (from the company's own site or mentions their site)
+    if (urlLower.includes(identifiers.domain)) {
+      relevance_confidence = 'high';
+      matchReasons.push('domain_in_url');
+    }
+
+    // HIGH: domain mentioned in article text
+    if (fullText.includes(identifiers.domain)) {
+      relevance_confidence = 'high';
+      matchReasons.push('domain_in_text');
+    }
+
+    // HIGH: CEO/founder name appears in article
+    if (identifiers.ceoName && identifiers.ceoName.length > 3 && fullText.includes(identifiers.ceoName)) {
+      relevance_confidence = 'high';
+      matchReasons.push('ceo_name');
+    }
+
+    // MEDIUM: exact company name appears in title
+    if (titleLower.includes(identifiers.companyName)) {
+      if (relevance_confidence !== 'high') relevance_confidence = 'medium';
+      matchReasons.push('name_in_title');
+    }
+
+    // MEDIUM: exact company name in snippet + industry keyword match
+    if (snippetLower.includes(identifiers.companyName) && identifiers.industry) {
+      const industryWords = identifiers.industry.split(/\s+/).filter(w => w.length > 3);
+      const hasIndustryMatch = industryWords.some(w => fullText.includes(w));
+      if (hasIndustryMatch) {
+        if (relevance_confidence !== 'high') relevance_confidence = 'medium';
+        matchReasons.push('name_plus_industry');
+      }
+    }
+
+    // If only a partial name match (first word), stay low unless other signals
+    if (relevance_confidence === 'low') {
+      const nameWords = identifiers.companyName.split(/\s+/);
+      const hasFullNameMatch = fullText.includes(identifiers.companyName);
+      if (!hasFullNameMatch && nameWords.length > 1) {
+        // Only first word matched — very likely false positive for short/common names
+        relevance_confidence = 'low';
+      } else if (hasFullNameMatch) {
+        // Full name matched but no other identifiers — borderline
+        relevance_confidence = 'medium';
+        matchReasons.push('name_in_text');
+      }
+    }
+
     return {
       title: r.title,
       url: r.url,
@@ -885,23 +989,97 @@ async function fetchRecentNews(companyName, apiKey) {
       source: new URL(r.url).hostname.replace('www.', ''),
       publishedDate: publishedDate || 'Unknown',
       newsType,
+      relevance_confidence,
       _sortDate: sortDate,
+      _matchReasons: matchReasons,
     };
   });
 
   // Sort by date descending (most recent first), unknowns at end
   articles.sort((a, b) => b._sortDate - a._sortDate);
 
-  // Filter to most relevant (company name match) then clean up internal fields
-  const companyFirstWord = companyName.toLowerCase().split(' ')[0];
-  const relevant = articles.filter(a =>
-    a.title && a.title.toLowerCase().includes(companyFirstWord)
-  );
-  const finalArticles = (relevant.length > 0 ? relevant : articles)
+  // Filter: only keep high and medium confidence results
+  let validated = articles.filter(a => a.relevance_confidence !== 'low');
+
+  // If we have Perplexity available and some borderline articles, do LLM validation
+  // on articles that are medium confidence to upgrade or downgrade them
+  if (perplexityApiKey && validated.length < 3 && articles.length > validated.length) {
+    // We don't have enough results — try to validate some "low" ones via LLM
+    const lowArticles = articles.filter(a => a.relevance_confidence === 'low').slice(0, 3);
+    if (lowArticles.length > 0) {
+      try {
+        const llmValidated = await validateNewsRelevance(
+          companyName, domain, identifiers, lowArticles, perplexityApiKey
+        );
+        // Add any that passed validation as medium
+        for (const article of llmValidated) {
+          article.relevance_confidence = 'medium';
+          article._matchReasons.push('llm_validated');
+          validated.push(article);
+        }
+      } catch {
+        // LLM validation failed, skip
+      }
+    }
+  }
+
+  // Re-sort after potential additions
+  validated.sort((a, b) => b._sortDate - a._sortDate);
+
+  // Clean up internal fields and take top 5
+  const finalArticles = validated
     .slice(0, 5)
-    .map(({ _sortDate, ...rest }) => rest);
+    .map(({ _sortDate, _matchReasons, ...rest }) => rest);
 
   return { articles: finalArticles };
+}
+
+// LLM-based relevance validation for borderline news articles
+async function validateNewsRelevance(companyName, domain, identifiers, articles, perplexityApiKey) {
+  const articleList = articles.map((a, i) =>
+    `Article ${i + 1}:\n  Title: ${a.title}\n  Snippet: ${a.snippet?.slice(0, 150)}\n  URL: ${a.url}`
+  ).join('\n\n');
+
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${perplexityApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-sonar-small-128k-online',
+      messages: [
+        {
+          role: 'user',
+          content: `Given this company:
+- Name: ${companyName}
+- Domain: ${domain}
+- Industry: ${identifiers.industry || 'unknown'}
+
+For each article below, answer YES if it is about THIS SPECIFIC company (not a different company with a similar name), or NO if it is about a different company or unrelated.
+
+${articleList}
+
+Return ONLY a JSON array of booleans in order, e.g. [true, false, true]`,
+        },
+      ],
+      max_tokens: 100,
+    }),
+  });
+
+  if (!response.ok) return [];
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  const jsonMatch = content.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
+
+  try {
+    const results = JSON.parse(jsonMatch[0]);
+    return articles.filter((_, i) => results[i] === true);
+  } catch {
+    return [];
+  }
 }
 
 // Firecrawl helper: Scrape a URL and get clean markdown/structured data

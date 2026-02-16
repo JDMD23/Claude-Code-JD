@@ -841,7 +841,7 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySav
             {dossier.recentNews && dossier.recentNews.length > 0 ? (
               <div className="news-list">
                 {dossier.recentNews.map((article, idx) => (
-                  <div key={idx} className="news-item">
+                  <div key={idx} className={`news-item ${article.relevance_confidence === 'high' ? 'news-high-confidence' : ''}`}>
                     <div className="news-header">
                       <a href={article.url} target="_blank" rel="noopener noreferrer" className="news-title">
                         {article.title} <ExternalLink size={12} />
@@ -852,6 +852,11 @@ function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySav
                       {article.newsType && article.newsType !== 'Company News' && (
                         <span className={`news-type-badge ${article.newsType.toLowerCase().replace(/[\s/&]+/g, '-')}`}>
                           {article.newsType}
+                        </span>
+                      )}
+                      {article.relevance_confidence && (
+                        <span className={`news-confidence-badge confidence-${article.relevance_confidence}`}>
+                          {article.relevance_confidence === 'high' ? 'Verified' : 'Likely match'}
                         </span>
                       )}
                       <span className="news-source">{article.source}</span>

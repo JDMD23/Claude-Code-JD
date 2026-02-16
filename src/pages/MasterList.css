@@ -630,6 +630,29 @@
   color: #f59e0b;
 }
 
+/* News relevance confidence */
+.news-confidence-badge {
+  font-size: 0.6rem;
+  font-weight: 500;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+.confidence-high {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: var(--status-green);
+}
+
+.confidence-medium {
+  background-color: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+}
+
+.news-high-confidence {
+  border-left: 2px solid var(--status-green);
+}
+
 /* Email Preview */
 .email-preview {
   display: flex;
