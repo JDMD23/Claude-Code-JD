@@ -481,45 +481,66 @@ export async function enrichCompany(domain) {
   const results = {};
   const companyName = domain.split('.')[0];
 
-  // Clearbit Autocomplete API — free, no key needed, works from browser
-  try {
-    const response = await fetch(
-      `https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(companyName)}`
-    );
+  // Try multiple sources in parallel for speed
+  const fetches = [];
 
-    if (response.ok) {
-      const data = await response.json();
-      // Find best match by domain
-      const match = data.find(c => c.domain === domain) || data[0];
-      if (match) {
-        if (match.name) results.companyName = match.name;
-        if (match.domain) results.website = `https://${match.domain}`;
-        if (match.logo) results.logo = match.logo;
-      }
-    }
-  } catch {
-    // Clearbit failed, continue
-  }
+  // 1. Clearbit Autocomplete — free, CORS-enabled
+  fetches.push(
+    fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(domain)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const match = data.find(c => c.domain === domain) || data[0];
+        if (match) {
+          if (match.name) results.companyName = match.name;
+          if (match.domain) results.website = `https://${match.domain}`;
+          if (match.logo) results.logo = match.logo;
+        }
+      })
+      .catch(() => {})
+  );
 
-  // Wikipedia API — free, CORS-enabled, gets description
-  try {
-    const searchTerm = results.companyName || companyName;
-    const wikiResponse = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`
-    );
+  // 2. Wikipedia search API — free, CORS-enabled
+  fetches.push(
+    fetch(`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(companyName + ' company')}&limit=1&format=json&origin=*`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data[1] && data[1][0]) {
+          const pageName = data[1][0];
+          // Now fetch the summary for this page
+          return fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageName)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(summary => {
+              if (summary?.extract && summary.type !== 'disambiguation') {
+                results.description = summary.extract.length > 200
+                  ? summary.extract.slice(0, 197) + '...'
+                  : summary.extract;
+              }
+            });
+        }
+      })
+      .catch(() => {})
+  );
 
-    if (wikiResponse.ok) {
-      const wikiData = await wikiResponse.json();
-      if (wikiData.extract && wikiData.type !== 'disambiguation') {
-        results.description = wikiData.extract.length > 150
-          ? wikiData.extract.slice(0, 147) + '...'
-          : wikiData.extract;
-      }
-    }
-  } catch {
-    // Wikipedia failed, continue
-  }
+  // 3. DuckDuckGo Instant Answer API — free, CORS-enabled
+  fetches.push(
+    fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(domain)}&format=json&no_html=1&skip_disambig=1`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          if (data.Abstract && !results.description) {
+            results.description = data.Abstract.length > 200
+              ? data.Abstract.slice(0, 197) + '...'
+              : data.Abstract;
+          }
+          if (data.Heading && !results.companyName) {
+            results.companyName = data.Heading;
+          }
+        }
+      })
+      .catch(() => {})
+  );
 
+  await Promise.allSettled(fetches);
   return results;
 }
 
