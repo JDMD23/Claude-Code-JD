@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES } from '../store/dataStore';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader } from 'lucide-react';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, getSettings, enrichCompany } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -299,8 +299,34 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
 }
 
 // Company Detail Modal
-function CompanyModal({ company, onClose }) {
+function CompanyModal({ company, onClose, onEnrich }) {
+  const [enriching, setEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState(null);
+
   if (!company) return null;
+
+  const settings = getSettings();
+  const hasApiKeys = settings.apolloApiKey || settings.perplexityApiKey;
+  const domain = getDomain(company.website);
+
+  const handleEnrich = async () => {
+    if (!domain || !hasApiKeys) return;
+    setEnriching(true);
+    setEnrichResult(null);
+    try {
+      const result = await enrichCompany(domain, settings);
+      const hasData = Object.keys(result).length > 0;
+      if (hasData) {
+        onEnrich(company.id, result);
+        setEnrichResult({ success: true, message: 'Company data updated!' });
+      } else {
+        setEnrichResult({ success: false, message: 'No data found for this domain.' });
+      }
+    } catch {
+      setEnrichResult({ success: false, message: 'Enrichment failed. Check API keys in Settings.' });
+    }
+    setEnriching(false);
+  };
 
   const InfoRow = ({ label, value, isLink }) => {
     if (!value) return null;
@@ -326,9 +352,27 @@ function CompanyModal({ company, onClose }) {
             <CompanyLogo website={company.website} name={company.organizationName} size={48} />
             <div>
               <h2>{company.organizationName}</h2>
-              {company.prospectStatus && (
-                <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
-                  {company.prospectStatus}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                {company.prospectStatus && (
+                  <span className={`prospect-badge ${getProspectBadgeClass(company.prospectStatus)}`}>
+                    {company.prospectStatus}
+                  </span>
+                )}
+                {domain && (
+                  <button
+                    className={`btn btn-secondary btn-sm enrich-btn ${enriching ? 'enriching' : ''}`}
+                    onClick={handleEnrich}
+                    disabled={enriching || !hasApiKeys}
+                    title={!hasApiKeys ? 'Add API keys in Settings first' : `Enrich ${domain}`}
+                  >
+                    {enriching ? <Loader size={14} strokeWidth={1.5} className="spin" /> : <Zap size={14} strokeWidth={1.5} />}
+                    {enriching ? 'Enriching...' : 'Enrich'}
+                  </button>
+                )}
+              </div>
+              {enrichResult && (
+                <span className={`enrich-result ${enrichResult.success ? 'success' : 'error'}`}>
+                  {enrichResult.message}
                 </span>
               )}
             </div>
@@ -503,6 +547,26 @@ function MasterList() {
     } else {
       setSelectedIds(new Set(filteredCompanies.map(c => c.id)));
     }
+  };
+
+  const handleEnrichCompany = (companyId, enrichData) => {
+    const updated = companies.map(c => {
+      if (c.id !== companyId) return c;
+      return {
+        ...c,
+        description: enrichData.description || c.description,
+        employeeCount: enrichData.employeeCount || c.employeeCount,
+        industry: enrichData.industry || c.industry,
+        linkedinUrl: enrichData.linkedinUrl || c.linkedin,
+        foundedDate: enrichData.founded || c.foundedDate,
+        nycAddress: enrichData.headquarters || c.nycAddress,
+      };
+    });
+    saveMasterList(updated);
+    setCompanies(updated);
+    // Refresh the selected company view
+    const refreshed = updated.find(c => c.id === companyId);
+    if (refreshed) setSelectedCompany(refreshed);
   };
 
   const handleAddToCRM = (companiesToAdd, stage) => {
@@ -800,6 +864,7 @@ function MasterList() {
         <CompanyModal
           company={selectedCompany}
           onClose={() => setSelectedCompany(null)}
+          onEnrich={handleEnrichCompany}
         />
       )}
 

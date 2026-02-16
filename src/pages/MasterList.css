@@ -222,6 +222,41 @@
   cursor: not-allowed;
 }
 
+/* Enrich Button */
+.enrich-btn {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  gap: 0.25rem;
+}
+
+.enrich-btn.enriching {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+.enrich-result {
+  font-size: 0.7rem;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.enrich-result.success {
+  color: var(--status-green);
+}
+
+.enrich-result.error {
+  color: var(--status-red);
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .dossier-grid {
