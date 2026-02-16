@@ -98,10 +98,35 @@ async function fetchPerplexity(domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `Look up the company with the website domain "${domain}" and give me a factual profile about THAT specific company. Do NOT confuse it with similarly-named companies. Return ONLY valid JSON with these fields: {"companyName": "", "industry": "", "employeeCount": "", "description": "", "headquarters": "", "founded": ""}. Keep description under 150 characters. If you are not sure about a field, leave it as an empty string.`,
+          content: `I'm a commercial real estate broker researching the company at domain "${domain}" for a potential NYC office space deal. Look up this EXACT company (not similarly named ones) and return ONLY valid JSON with these fields:
+
+{
+  "companyName": "",
+  "description": "one sentence about what the company does",
+  "industry": "",
+  "founded": "",
+  "headquarters": "city, state",
+  "employeeCount": "number or estimate",
+  "nycAddress": "their NYC office address if known, or empty",
+  "nycOfficeConfirmed": "Yes or No or Unknown",
+  "workPolicyQuote": "remote, hybrid, or in-office based on job listings or press",
+  "totalJobs": "approximate open positions",
+  "nycJobs": "approximate NYC-based open positions",
+  "departmentsHiring": "e.g. Engineering, Sales, Operations",
+  "totalFunding": "total funding raised in USD",
+  "lastFundingAmount": "most recent round amount",
+  "lastFundingType": "e.g. Series A, Series B, Seed",
+  "lastFundingDate": "approximate date of last round",
+  "topInvestors": "key investors",
+  "linkedinUrl": "company linkedin URL",
+  "careersUrl": "careers page URL",
+  "keyContacts": "CEO/founder names"
+}
+
+If unsure about a field leave it as empty string. Return ONLY the JSON object, no other text.`,
         },
       ],
-      max_tokens: 300,
+      max_tokens: 600,
     }),
   });
 
@@ -140,8 +165,12 @@ async function fetchApollo(domain, apiKey) {
   if (org.linkedin_url) results.linkedinUrl = org.linkedin_url;
   if (org.founded_year) results.founded = String(org.founded_year);
   if (org.city) results.headquarters = `${org.city}, ${org.state || ''}`.trim();
-  if (org.total_funding) results.funding = String(org.total_funding);
-  if (org.latest_funding_round_type) results.fundingRound = org.latest_funding_round_type;
+  if (org.total_funding) results.totalFunding = `$${Math.round(org.total_funding / 1000000)}M`;
+  if (org.total_funding_printed) results.totalFunding = org.total_funding_printed;
+  if (org.latest_funding_round_type) results.lastFundingType = org.latest_funding_round_type;
+  if (org.latest_funding_stage) results.lastFundingType = org.latest_funding_stage;
+  if (org.number_of_funding_rounds) results.fundingRounds = String(org.number_of_funding_rounds);
+  if (org.blog_url || org.website_url) results.careersUrl = org.blog_url || '';
   return results;
 }
 

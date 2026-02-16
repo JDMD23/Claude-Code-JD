@@ -572,9 +572,20 @@ function MasterList() {
         industry: enrichData.industry || c.industry,
         linkedin: enrichData.linkedinUrl || c.linkedin,
         foundedDate: enrichData.founded || c.foundedDate,
-        nycAddress: enrichData.headquarters || c.nycAddress,
-        totalFunding: enrichData.funding || c.totalFunding,
-        lastFundingType: enrichData.fundingRound || c.lastFundingType,
+        nycAddress: enrichData.nycAddress || enrichData.headquarters || c.nycAddress,
+        nycOfficeConfirmed: enrichData.nycOfficeConfirmed || c.nycOfficeConfirmed,
+        workPolicyQuote: enrichData.workPolicyQuote || c.workPolicyQuote,
+        totalJobs: enrichData.totalJobs || c.totalJobs,
+        nycJobs: enrichData.nycJobs || c.nycJobs,
+        departmentsHiring: enrichData.departmentsHiring || c.departmentsHiring,
+        careersUrl: enrichData.careersUrl || c.careersUrl,
+        totalFunding: enrichData.totalFunding || c.totalFunding,
+        lastFundingAmount: enrichData.lastFundingAmount || c.lastFundingAmount,
+        lastFundingType: enrichData.lastFundingType || c.lastFundingType,
+        lastFundingDate: enrichData.lastFundingDate || c.lastFundingDate,
+        fundingRounds: enrichData.fundingRounds || c.fundingRounds,
+        topInvestors: enrichData.topInvestors || c.topInvestors,
+        keyContacts: enrichData.keyContacts || c.keyContacts,
       };
     });
     saveMasterList(updated);
