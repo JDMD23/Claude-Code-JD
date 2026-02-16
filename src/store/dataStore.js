@@ -420,7 +420,13 @@ export async function enrichCompany(domain) {
   const res = await fetch(`${settings.proxyUrl}/enrich`, {
     method: 'POST',
     headers: getProxyHeaders(),
-    body: JSON.stringify({ domain }),
+    body: JSON.stringify({
+      domain,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      exaApiKey: settings.exaApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
+    }),
   });
 
   if (!res.ok) throw new Error(`Enrich failed: ${res.status}`);
@@ -454,7 +460,14 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
   const res = await fetch(`${settings.proxyUrl}/agent`, {
     method: 'POST',
     headers: getProxyHeaders(),
-    body: JSON.stringify({ domain, csvData }),
+    body: JSON.stringify({
+      domain,
+      csvData,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      exaApiKey: settings.exaApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
+    }),
   });
 
   if (!res.ok) throw new Error(`Agent failed: ${res.status}`);
@@ -503,7 +516,13 @@ export async function sendChatMessage(messages) {
   const res = await fetch(`${settings.proxyUrl}/chat`, {
     method: 'POST',
     headers: getProxyHeaders(),
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({
+      messages,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      exaApiKey: settings.exaApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
+    }),
   });
 
   if (!res.ok) throw new Error(`Chat failed: ${res.status}`);

@@ -35,6 +35,19 @@ function checkAuth(request, env) {
   return token === secret;
 }
 
+// ============ API KEY MERGING ============
+// Accept keys from request body OR env vars, body takes priority.
+// This lets users either set keys in Cloudflare env (production)
+// or enter them in Settings (development/personal use).
+function getApiKeys(bodyKeys = {}, env = {}) {
+  return {
+    perplexity: bodyKeys.perplexityApiKey || env.PERPLEXITY_API_KEY || '',
+    apollo: bodyKeys.apolloApiKey || env.APOLLO_API_KEY || '',
+    exa: bodyKeys.exaApiKey || env.EXA_API_KEY || '',
+    firecrawl: bodyKeys.firecrawlApiKey || env.FIRECRAWL_API_KEY || '',
+  };
+}
+
 // ============ API HELPERS ============
 
 async function fetchPerplexity(apiKey, companyName, domain, csvData = {}) {
@@ -424,37 +437,30 @@ Best regards`;
 // ============ ROUTE HANDLERS ============
 
 async function handleEnrich(request, env) {
-  const { domain } = await request.json();
+  const body = await request.json();
+  const { domain } = body;
   if (!domain) return corsResponse({ error: 'domain required' }, 400);
 
-  const settings = {
-    perplexityKey: env.PERPLEXITY_API_KEY,
-    apolloKey: env.APOLLO_API_KEY,
-  };
-
+  const keys = getApiKeys(body, env);
   const results = {};
 
-  if (settings.perplexityKey) {
-    results.perplexity = await fetchPerplexity(settings.perplexityKey, domain, domain);
+  if (keys.perplexity) {
+    results.perplexity = await fetchPerplexity(keys.perplexity, domain, domain);
   }
 
-  if (settings.apolloKey) {
-    results.apollo = await fetchApollo(settings.apolloKey, domain);
+  if (keys.apollo) {
+    results.apollo = await fetchApollo(keys.apollo, domain);
   }
 
   return corsResponse(results);
 }
 
 async function handleAgent(request, env) {
-  const { domain, csvData = {} } = await request.json();
+  const body = await request.json();
+  const { domain, csvData = {} } = body;
   if (!domain) return corsResponse({ error: 'domain required' }, 400);
 
-  const keys = {
-    perplexity: env.PERPLEXITY_API_KEY,
-    apollo: env.APOLLO_API_KEY,
-    exa: env.EXA_API_KEY,
-    firecrawl: env.FIRECRAWL_API_KEY,
-  };
+  const keys = getApiKeys(body, env);
 
   const companyName = csvData.organizationName || domain;
 
@@ -698,16 +704,18 @@ function classifyNewsType(text) {
 }
 
 async function handleChat(request, env) {
-  const { messages } = await request.json();
+  const body = await request.json();
+  const { messages } = body;
+  const keys = getApiKeys(body, env);
 
-  if (!env.PERPLEXITY_API_KEY) {
-    return corsResponse({ error: 'Perplexity API key not configured' }, 500);
+  if (!keys.perplexity) {
+    return corsResponse({ error: 'No Perplexity API key available' }, 500);
   }
 
   const res = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.PERPLEXITY_API_KEY}`,
+      'Authorization': `Bearer ${keys.perplexity}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
