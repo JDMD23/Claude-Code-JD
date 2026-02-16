@@ -31,10 +31,10 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
 
-      // POST /enrich — accepts { domain, perplexityApiKey, apolloApiKey, tavilyApiKey }
+      // POST /enrich — accepts { domain, perplexityApiKey, apolloApiKey, tavilyApiKey, firecrawlApiKey }
       if (path === '/enrich' && request.method === 'POST') {
         const body = await request.json();
-        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey } = body;
+        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey, firecrawlApiKey } = body;
 
         if (!domain) {
           return jsonResponse({ error: 'domain is required' }, 400);
@@ -112,7 +112,7 @@ export default {
       // POST /agent — Full research agent that chains multiple API calls
       if (path === '/agent' && request.method === 'POST') {
         const body = await request.json();
-        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey } = body;
+        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey, firecrawlApiKey } = body;
 
         if (!domain) {
           return jsonResponse({ error: 'domain is required' }, 400);
@@ -185,7 +185,7 @@ export default {
           } catch {}
         }
 
-        // STEP 5: Hiring Intelligence (smart deduplication)
+        // STEP 5: Hiring Intelligence (smart deduplication with Firecrawl)
         const careersUrl = dossier.nycIntel?.careersUrl || dossier.company.careersUrl || '';
         try {
           const hiringData = await fetchHiringIntelligence(
@@ -193,7 +193,8 @@ export default {
             domain,
             careersUrl,
             tavilyApiKey,
-            perplexityApiKey
+            perplexityApiKey,
+            firecrawlApiKey
           );
           dossier.hiring = hiringData;
         } catch {
@@ -529,8 +530,57 @@ async function fetchRecentNews(companyName, apiKey) {
   return { articles };
 }
 
+// Firecrawl helper: Scrape a URL and get clean markdown/structured data
+async function scrapeWithFirecrawl(url, apiKey) {
+  const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      formats: ['markdown', 'extract'],
+      extract: {
+        schema: {
+          type: 'object',
+          properties: {
+            jobListings: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Job title' },
+                  department: { type: 'string', description: 'Department or team' },
+                  location: { type: 'string', description: 'Job location' },
+                },
+              },
+              description: 'List of job openings found on the page',
+            },
+            totalJobCount: { type: 'number', description: 'Total number of job listings found' },
+            companyName: { type: 'string', description: 'Company name' },
+          },
+          required: ['jobListings'],
+        },
+        prompt: 'Extract all job listings from this careers page. Include title, department, and location for each job.',
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Firecrawl error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return {
+    markdown: data.data?.markdown || '',
+    extract: data.data?.extract || {},
+    success: data.success,
+  };
+}
+
 // Agent helper: Smart hiring intelligence - goes to careers page as source of truth
-async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyApiKey, perplexityApiKey) {
+async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyApiKey, perplexityApiKey, firecrawlApiKey) {
   const hiring = {
     status: 'Unknown',
     totalJobs: 0,
@@ -538,6 +588,7 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
     keyRoles: '',
     careersUrl: careersUrl || '',
     source: '',
+    jobListings: [],  // New: actual job data from Firecrawl
   };
 
   // Step 1: If we don't have a careers URL, find it
@@ -568,8 +619,42 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
     }
   }
 
-  // Step 2: Scrape the careers page for job listings
-  if (careersUrl && tavilyApiKey) {
+  // Step 2: Use Firecrawl to scrape the careers page (PRIMARY SOURCE)
+  let firecrawlSuccess = false;
+  if (careersUrl && firecrawlApiKey) {
+    try {
+      const scrapeResult = await scrapeWithFirecrawl(careersUrl, firecrawlApiKey);
+
+      if (scrapeResult.success && scrapeResult.extract) {
+        const extract = scrapeResult.extract;
+        hiring.source = 'firecrawl';
+        firecrawlSuccess = true;
+
+        // Get job listings from structured extraction
+        if (extract.jobListings && Array.isArray(extract.jobListings)) {
+          hiring.jobListings = extract.jobListings;
+          hiring.totalJobs = extract.totalJobCount || extract.jobListings.length;
+
+          // Count NYC jobs
+          hiring.nycJobs = extract.jobListings.filter(job => {
+            const loc = (job.location || '').toLowerCase();
+            return loc.includes('new york') || loc.includes('nyc') ||
+                   loc.includes('manhattan') || loc.includes('brooklyn');
+          }).length;
+
+          // Extract key roles (first 5 unique titles)
+          const uniqueTitles = [...new Set(extract.jobListings.map(j => j.title).filter(Boolean))];
+          hiring.keyRoles = uniqueTitles.slice(0, 5).join(', ');
+        }
+      }
+    } catch (e) {
+      // Firecrawl failed, will fall back to other methods
+      console.log('Firecrawl error:', e.message);
+    }
+  }
+
+  // Step 3: Fall back to Tavily if Firecrawl didn't work
+  if (!firecrawlSuccess && careersUrl && tavilyApiKey) {
     const scrapeResponse = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -584,9 +669,8 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
 
     if (scrapeResponse.ok) {
       const scrapeData = await scrapeResponse.json();
-      hiring.source = 'careers_page';
+      hiring.source = 'tavily_search';
 
-      // If Tavily gives us an answer about job count, use it
       if (scrapeData.answer) {
         const countMatch = scrapeData.answer.match(/(\d+)\s*(?:open|job|position|role)/i);
         if (countMatch) {
@@ -596,8 +680,8 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
     }
   }
 
-  // Step 3: Use Perplexity to analyze and deduplicate job counts
-  if (perplexityApiKey) {
+  // Step 4: Use Perplexity to fill in gaps (only if we don't have good data from Firecrawl)
+  if (perplexityApiKey && (!firecrawlSuccess || hiring.totalJobs === 0)) {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -640,11 +724,14 @@ Return JSON only:
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        hiring.totalJobs = parsed.totalJobs || hiring.totalJobs;
-        hiring.nycJobs = parsed.nycJobs || 0;
+        // Only use Perplexity data if we don't have better data from Firecrawl
+        if (!firecrawlSuccess) {
+          hiring.totalJobs = parsed.totalJobs || hiring.totalJobs;
+          hiring.nycJobs = parsed.nycJobs || 0;
+          hiring.keyRoles = parsed.keyRoles || '';
+          if (parsed.source) hiring.source = parsed.source;
+        }
         hiring.status = parsed.hiringStatus || hiring.status;
-        hiring.keyRoles = parsed.keyRoles || '';
-        if (parsed.source) hiring.source = parsed.source;
       }
     }
   }

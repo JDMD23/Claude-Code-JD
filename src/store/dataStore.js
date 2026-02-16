@@ -7,7 +7,7 @@ export const AGENT_STEPS = [
   { step: 2, label: 'Decision Makers', description: 'Finding key contacts for office space decisions' },
   { step: 3, label: 'NYC Address Search', description: 'Deep search for exact NYC office address' },
   { step: 4, label: 'Recent News', description: 'Searching for recent office/lease news' },
-  { step: 5, label: 'Hiring Intelligence', description: 'Analyzing hiring activity and roles' },
+  { step: 5, label: 'Hiring Intelligence', description: 'Scraping careers page with Firecrawl for job listings' },
   { step: 6, label: 'Outreach Email', description: 'Generating personalized cold email' },
 ];
 
@@ -710,6 +710,7 @@ const DEFAULT_SETTINGS = {
   apolloApiKey: '',
   perplexityApiKey: '',
   tavilyApiKey: '',
+  firecrawlApiKey: '',
   autoEnrich: false,
   enrichFields: ['industry', 'employeeCount', 'description', 'linkedinUrl'],
 };
@@ -741,6 +742,7 @@ export async function enrichCompany(domain) {
       perplexityApiKey: settings.perplexityApiKey || '',
       apolloApiKey: settings.apolloApiKey || '',
       tavilyApiKey: settings.tavilyApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
     }),
   });
 
@@ -777,6 +779,7 @@ export async function runResearchAgent(domain, onProgress) {
       perplexityApiKey: settings.perplexityApiKey || '',
       apolloApiKey: settings.apolloApiKey || '',
       tavilyApiKey: settings.tavilyApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
     }),
   });
 

@@ -10,6 +10,7 @@ function Settings() {
   const [showApollo, setShowApollo] = useState(false);
   const [showPerplexity, setShowPerplexity] = useState(false);
   const [showTavily, setShowTavily] = useState(false);
+  const [showFirecrawl, setShowFirecrawl] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
 
@@ -156,6 +157,29 @@ function Settings() {
               type="button"
             >
               {showTavily ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="api-key-group">
+          <label className="api-key-label">
+            <span>Firecrawl API Key</span>
+            <span className="api-key-hint">Careers page scraping for accurate job counts (firecrawl.dev)</span>
+          </label>
+          <div className="api-key-input-wrap">
+            <input
+              type={showFirecrawl ? 'text' : 'password'}
+              value={settings.firecrawlApiKey || ''}
+              onChange={(e) => handleChange('firecrawlApiKey', e.target.value)}
+              placeholder="Enter your Firecrawl API key (fc-...)..."
+              className="api-key-input"
+            />
+            <button
+              className="icon-btn"
+              onClick={() => setShowFirecrawl(!showFirecrawl)}
+              type="button"
+            >
+              {showFirecrawl ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
             </button>
           </div>
         </div>
