@@ -70,14 +70,22 @@ export default {
 
         await Promise.allSettled(tasks);
 
-        // If no NYC address found, do a follow-up search specifically for NYC address
-        if (perplexityApiKey && (!results.nycAddress || results.nycAddress === '' || results.nycAddress === 'Unknown')) {
+        // Follow-up search for NYC address and careers page if missing
+        const needsAddress = !results.nycAddress || results.nycAddress === '' || results.nycAddress === 'N/A' || results.nycAddress === 'Unknown';
+        const needsCareers = !results.careersUrl || results.careersUrl === '';
+
+        if (perplexityApiKey && (needsAddress || needsCareers)) {
           try {
             const companyName = results.companyName || domain.split('.')[0];
-            const addressData = await fetchNYCAddress(companyName, domain, perplexityApiKey);
-            if (addressData.nycAddress && addressData.nycAddress !== 'Unknown') {
-              results.nycAddress = addressData.nycAddress;
-              if (addressData.nycOfficeConfirmed) results.nycOfficeConfirmed = addressData.nycOfficeConfirmed;
+            const extraData = await fetchNYCAddress(companyName, domain, perplexityApiKey);
+            if (extraData.nycAddress && extraData.nycAddress !== 'Unknown' && extraData.nycAddress !== 'N/A' && extraData.nycAddress !== '') {
+              results.nycAddress = extraData.nycAddress;
+            }
+            if (extraData.nycOfficeConfirmed) {
+              results.nycOfficeConfirmed = extraData.nycOfficeConfirmed;
+            }
+            if (extraData.careersUrl && !results.careersUrl) {
+              results.careersUrl = extraData.careersUrl;
             }
           } catch {}
         }
@@ -192,22 +200,31 @@ async function fetchNYCAddress(companyName, domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `Search the web for: "${companyName}" NYC office address OR "${companyName}" New York office location OR "${companyName}" Manhattan office
+          content: `Find the NYC office address and careers page for "${companyName}" (${domain}).
 
-I need the EXACT street address of their New York City office. Look for:
-- Their website contact/location page
-- LinkedIn company page
-- Job postings mentioning NYC office
-- News articles about their NYC location
-- WeWork/coworking listings
+SEARCH THESE SOURCES FOR ADDRESS:
+1. site:${domain} "New York" address (check their website contact/about page)
+2. site:${domain}/terms OR site:${domain}/privacy (legal pages often have registered addresses)
+3. "${companyName}" LinkedIn company page location
+4. "${companyName}" Google Maps New York
+5. "${companyName}" NYC office job posting location
+6. "${companyName}" WeWork OR "${companyName}" coworking NYC
 
-Return ONLY valid JSON:
-{"nycAddress": "exact street address like '123 Main St, Floor 5, New York, NY 10001' or empty if not found", "nycOfficeConfirmed": "Yes or No"}
+SEARCH THESE FOR CAREERS PAGE:
+1. site:${domain}/careers OR site:${domain}/jobs
+2. "${companyName}" careers greenhouse OR ashby OR lever OR wellfound
 
-I need a real street address with building number. Do not return just "New York" or "Manhattan" - I need the full address.`,
+Return ONLY this JSON:
+{
+  "nycAddress": "exact street address like '123 Broadway, Floor 10, New York, NY 10001' or empty string if not found",
+  "nycOfficeConfirmed": "Yes or No",
+  "careersUrl": "URL to their careers/jobs page"
+}
+
+IMPORTANT: I need a real street address with building number and zip code. Do NOT return just "New York" or "Manhattan".`,
         },
       ],
-      max_tokens: 200,
+      max_tokens: 250,
     }),
   });
 
