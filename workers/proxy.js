@@ -31,10 +31,10 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
 
-      // POST /enrich — accepts { domain, perplexityApiKey, apolloApiKey }
+      // POST /enrich — accepts { domain, perplexityApiKey, apolloApiKey, tavilyApiKey }
       if (path === '/enrich' && request.method === 'POST') {
         const body = await request.json();
-        const { domain, perplexityApiKey, apolloApiKey } = body;
+        const { domain, perplexityApiKey, apolloApiKey, tavilyApiKey } = body;
 
         if (!domain) {
           return jsonResponse({ error: 'domain is required' }, 400);
@@ -73,10 +73,26 @@ export default {
         // Follow-up search for NYC address and careers page if missing
         const needsAddress = !results.nycAddress || results.nycAddress === '' || results.nycAddress === 'N/A' || results.nycAddress === 'Unknown';
         const needsCareers = !results.careersUrl || results.careersUrl === '';
+        const companyName = results.companyName || domain.split('.')[0];
 
-        if (perplexityApiKey && (needsAddress || needsCareers)) {
+        // Try Tavily first for address (better for specific searches)
+        if (tavilyApiKey && needsAddress) {
           try {
-            const companyName = results.companyName || domain.split('.')[0];
+            const tavilyData = await fetchTavilyAddress(companyName, domain, tavilyApiKey);
+            if (tavilyData.nycAddress) {
+              results.nycAddress = tavilyData.nycAddress;
+              results.nycOfficeConfirmed = 'Yes';
+            }
+            if (tavilyData.careersUrl && !results.careersUrl) {
+              results.careersUrl = tavilyData.careersUrl;
+            }
+          } catch {}
+        }
+
+        // Fallback to Perplexity if still missing
+        const stillNeedsAddress = !results.nycAddress || results.nycAddress === '' || results.nycAddress === 'N/A';
+        if (perplexityApiKey && (stillNeedsAddress || needsCareers)) {
+          try {
             const extraData = await fetchNYCAddress(companyName, domain, perplexityApiKey);
             if (extraData.nycAddress && extraData.nycAddress !== 'Unknown' && extraData.nycAddress !== 'N/A' && extraData.nycAddress !== '') {
               results.nycAddress = extraData.nycAddress;
@@ -228,6 +244,73 @@ Respond with JSON only:
     return JSON.parse(jsonMatch[0]);
   }
   return {};
+}
+
+async function fetchTavilyAddress(companyName, domain, apiKey) {
+  // Search for NYC office address
+  const addressResponse = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: `${companyName} NYC office address New York location`,
+      search_depth: 'advanced',
+      include_answer: true,
+      max_results: 5
+    }),
+  });
+
+  if (!addressResponse.ok) throw new Error(`Tavily ${addressResponse.status}`);
+  const addressData = await addressResponse.json();
+
+  const results = {};
+
+  // Extract address from Tavily's AI answer
+  if (addressData.answer) {
+    const addressMatch = addressData.answer.match(/\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*New York[,\s]+NY\s+\d{5}/i);
+    if (addressMatch) {
+      results.nycAddress = addressMatch[0];
+    }
+  }
+
+  // Also check search results for addresses
+  if (!results.nycAddress && addressData.results) {
+    for (const result of addressData.results) {
+      const content = result.content || '';
+      const addressMatch = content.match(/\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*New York[,\s]+NY\s+\d{5}/i);
+      if (addressMatch) {
+        results.nycAddress = addressMatch[0];
+        break;
+      }
+    }
+  }
+
+  // Search for careers page
+  const careersResponse = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: `${companyName} careers jobs page site:${domain}`,
+      search_depth: 'basic',
+      include_answer: false,
+      max_results: 3
+    }),
+  });
+
+  if (careersResponse.ok) {
+    const careersData = await careersResponse.json();
+    if (careersData.results && careersData.results.length > 0) {
+      const careersUrl = careersData.results.find(r =>
+        r.url.includes('careers') || r.url.includes('jobs') || r.url.includes('hiring')
+      );
+      if (careersUrl) {
+        results.careersUrl = careersUrl.url;
+      }
+    }
+  }
+
+  return results;
 }
 
 async function fetchApollo(domain, apiKey) {

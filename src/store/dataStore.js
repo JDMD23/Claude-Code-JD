@@ -463,6 +463,7 @@ const DEFAULT_SETTINGS = {
   proxyUrl: '',
   apolloApiKey: '',
   perplexityApiKey: '',
+  tavilyApiKey: '',
   autoEnrich: false,
   enrichFields: ['industry', 'employeeCount', 'description', 'linkedinUrl'],
 };
@@ -493,6 +494,7 @@ export async function enrichCompany(domain) {
       domain,
       perplexityApiKey: settings.perplexityApiKey || '',
       apolloApiKey: settings.apolloApiKey || '',
+      tavilyApiKey: settings.tavilyApiKey || '',
     }),
   });
 

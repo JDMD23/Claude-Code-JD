@@ -9,6 +9,7 @@ function Settings() {
   const [saved, setSaved] = useState(false);
   const [showApollo, setShowApollo] = useState(false);
   const [showPerplexity, setShowPerplexity] = useState(false);
+  const [showTavily, setShowTavily] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
 
@@ -132,6 +133,29 @@ function Settings() {
               type="button"
             >
               {showPerplexity ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="api-key-group">
+          <label className="api-key-label">
+            <span>Tavily API Key</span>
+            <span className="api-key-hint">Advanced web search for NYC addresses (tavily.com)</span>
+          </label>
+          <div className="api-key-input-wrap">
+            <input
+              type={showTavily ? 'text' : 'password'}
+              value={settings.tavilyApiKey || ''}
+              onChange={(e) => handleChange('tavilyApiKey', e.target.value)}
+              placeholder="Enter your Tavily API key (tvly-...)..."
+              className="api-key-input"
+            />
+            <button
+              className="icon-btn"
+              onClick={() => setShowTavily(!showTavily)}
+              type="button"
+            >
+              {showTavily ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
             </button>
           </div>
         </div>
