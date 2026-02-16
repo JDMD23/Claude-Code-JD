@@ -340,10 +340,57 @@ export default {
           // Founder Score (0-3) — take the max across all founder profiles
           let founderScoreResult = { score: 0, reason: 'No founder data' };
           let bestFounder = null;
+
+          // First try to use founderProfiles (detailed DD data)
           for (const fp of (dossier.founderProfiles || [])) {
             if (fp.pedigreeScore > founderScoreResult.score) {
               founderScoreResult = { score: fp.pedigreeScore, reason: fp.pedigreeReason };
               bestFounder = fp.name;
+            }
+          }
+
+          // FALLBACK: If founderProfiles is empty but we have founders in contacts,
+          // create basic founder info for the scorecard
+          if (!bestFounder && dossier.contacts && dossier.contacts.length > 0) {
+            const founders = dossier.contacts.filter(c =>
+              c.title && /founder|co-founder|cofounder|ceo.*founder|founder.*ceo/i.test(c.title)
+            );
+            // Also check for just CEO if no explicit founders
+            const ceo = !founders.length ? dossier.contacts.find(c =>
+              c.title && /^ceo$|chief executive/i.test(c.title)
+            ) : null;
+
+            const founderContact = founders[0] || ceo;
+            if (founderContact) {
+              bestFounder = founderContact.name;
+              // Give base score of 0 (first-time founder) but acknowledge we found them
+              founderScoreResult = {
+                score: 0,
+                reason: `Founder identified: ${founderContact.name} (${founderContact.title}) - needs DD`
+              };
+            }
+          }
+
+          // Link founderProfiles to contacts for display continuity
+          // If a founder is in contacts but not in founderProfiles, add a minimal profile
+          if (dossier.contacts && (!dossier.founderProfiles || dossier.founderProfiles.length === 0)) {
+            const contactFounders = dossier.contacts.filter(c =>
+              c.title && /founder|co-founder|cofounder|ceo/i.test(c.title)
+            );
+            if (contactFounders.length > 0) {
+              dossier.founderProfiles = contactFounders.map(f => ({
+                name: f.name,
+                title: f.title,
+                linkedin: f.linkedin || '',
+                email: f.email || '',
+                pedigree: 'First-Time Founder',
+                pedigreeReason: 'Awaiting detailed background research',
+                pedigreeScore: 0,
+                tldr: '',
+                career: [],
+                education: [],
+                talkingPoints: [],
+              }));
             }
           }
 
@@ -541,32 +588,36 @@ async function fetchNYCIntelPerplexity(companyName, domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `Does ${companyName} (website: ${domain}) have an office in New York City? I need precise intelligence.
+          content: `Find the EXACT New York City office address for ${companyName} (website: ${domain}).
 
-Search for:
-1. Their office location on their website's contact page, about page, or footer
-2. Their address listed on their terms of service or privacy policy page
-3. Their LinkedIn company page "Locations" section
-4. Job postings from ${companyName} that mention a NYC office address
-5. News articles about ${companyName} opening or having a NYC office
-6. Any announcements about PLANNED NYC office openings
+SEARCH THESE SPECIFIC SOURCES IN ORDER:
+1. Go to ${domain}/contact or ${domain}/about - look for NYC address in footer or contact info
+2. Check their LinkedIn company page: search "site:linkedin.com/company ${companyName}" and look at Locations
+3. Search for "${companyName} NYC office address" or "${companyName} New York headquarters"
+4. Check their job postings for NYC office addresses (Greenhouse, Lever, Ashby URLs often list office locations)
+5. Check Crunchbase or Pitchbook for office locations
+6. Look for press releases about ${companyName} opening NYC office
+7. Search WeWork, Industrious, or coworking directories for ${companyName}
 
-Also estimate:
-- How many employees they have in NYC (check LinkedIn, job postings with NYC location, news articles)
+I need the EXACT street address like "123 Park Avenue, Floor 10, New York, NY 10001".
+Do NOT return generic "New York City" - I need the actual street address.
+
+Also find:
+- Estimated NYC headcount from LinkedIn or job listings
 - Their careers page URL
 
-Respond with JSON only:
+Return ONLY this JSON:
 {
-  "nycAddress": "full street address with zip code, or empty string if not found",
-  "nycHeadcount": "estimated number of NYC employees like '~50' or '~200' or 'Unknown'",
+  "nycAddress": "exact street address with zip, or empty string if truly not found",
+  "nycHeadcount": "estimated NYC employees like '~50' or 'Unknown'",
   "planned": false,
   "careersUrl": "careers page URL or empty string"
 }
 
-Set "planned" to true ONLY if there's evidence they are planning to open a NYC office but haven't yet.`,
+Only set "planned" to true if they've announced plans to open NYC office but haven't yet.`,
         },
       ],
-      max_tokens: 400,
+      max_tokens: 500,
     }),
   });
 
@@ -584,11 +635,13 @@ Set "planned" to true ONLY if there's evidence they are planning to open a NYC o
 async function fetchTavilyAddress(companyName, domain, apiKey) {
   const results = {};
 
-  // Multiple search strategies for NYC office address
+  // Multiple search strategies for NYC office address - expanded queries
   const searchQueries = [
-    `"${companyName}" office address "New York" OR "NYC" OR "Manhattan"`,
-    `${companyName} headquarters New York office location`,
-    `site:${domain} contact address "New York"`,
+    `"${companyName}" office address "New York" OR "NYC" OR "Manhattan" OR "Brooklyn"`,
+    `${companyName} headquarters "New York City" office location address`,
+    `site:${domain} contact address "New York" OR "NYC"`,
+    `"${companyName}" "New York, NY" location office`,
+    `site:linkedin.com "${companyName}" "New York" office location`,
   ];
 
   // Try each search query until we find an address
@@ -611,14 +664,18 @@ async function fetchTavilyAddress(companyName, domain, apiKey) {
       if (!addressResponse.ok) continue;
       const addressData = await addressResponse.json();
 
-      // Multiple regex patterns for different address formats
+      // Multiple regex patterns for different address formats (expanded)
       const addressPatterns = [
         // Standard format: 123 Park Ave, New York, NY 10001
-        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd|Way|Drive|Dr|Lane|Ln)[,\s]+(?:Suite|Ste|Floor|Fl|#|Unit)?\s*\d*[,\s]*(?:New York|Manhattan|NYC)[,\s]+(?:NY)?\s*\d{5}/gi,
-        // Short format: 123 Park Ave, NYC
-        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*(?:New York|NYC|Manhattan)/gi,
-        // Just street address in NY context
-        /\d+\s+(?:West|East|W|E)?\s*\d*(?:st|nd|rd|th)?\s+(?:Street|St|Avenue|Ave)[,\s]+(?:Floor|Fl)?\s*\d*/gi,
+        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd|Way|Drive|Dr|Lane|Ln)[,\s]+(?:Suite|Ste|Floor|Fl|#|Unit)?\s*\d*[,\s]*(?:New York|Manhattan|NYC|Brooklyn|Queens)[,\s]+(?:NY)?\s*\d{5}/gi,
+        // With floor/suite: 123 Park Ave, Floor 10, New York
+        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:Suite|Ste|Floor|Fl|#|Unit)\s*\d+[,\s]*(?:New York|NYC|Manhattan|Brooklyn)/gi,
+        // Short format: 123 Park Ave, NYC or New York, NY
+        /\d+\s+[\w\s]+(?:Street|St|Avenue|Ave|Broadway|Road|Rd|Place|Pl|Boulevard|Blvd)[,\s]+(?:New York|NYC|Manhattan|Brooklyn)[,\s]*(?:NY)?/gi,
+        // Numbered streets: 123 West 23rd Street, New York
+        /\d+\s+(?:West|East|W\.?|E\.?)\s*\d+(?:st|nd|rd|th)\s+(?:Street|St|Avenue|Ave)[,\s]+(?:Suite|Ste|Floor|Fl|#)?\s*\d*[,\s]*(?:New York|NYC|Manhattan)?/gi,
+        // WeWork/coworking style: 115 Broadway, New York
+        /\d+\s+(?:Broadway|Park\s+Ave|Madison\s+Ave|Fifth\s+Ave|Lexington\s+Ave|Wall\s+Street|Water\s+Street|Fulton\s+Street)[,\s]+(?:Floor|Fl|Suite|Ste)?\s*\d*[,\s]*(?:New York|NYC)?/gi,
       ];
 
       // Check Tavily's AI answer first
@@ -1255,13 +1312,13 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
     try {
       const scrapeResult = await scrapeWithFirecrawl(careersUrl, firecrawlApiKey);
 
-      if (scrapeResult.success && scrapeResult.extract) {
-        const extract = scrapeResult.extract;
+      if (scrapeResult.success) {
+        const extract = scrapeResult.extract || {};
         hiring.source = 'firecrawl';
-        firecrawlSuccess = true;
 
         // Get job listings from structured extraction
-        if (extract.jobListings && Array.isArray(extract.jobListings)) {
+        if (extract.jobListings && Array.isArray(extract.jobListings) && extract.jobListings.length > 0) {
+          firecrawlSuccess = true;
           hiring.jobListings = extract.jobListings;
           hiring.totalJobs = extract.totalJobCount || extract.jobListings.length;
 
@@ -1275,6 +1332,43 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
           // Extract key roles (first 5 unique titles)
           const uniqueTitles = [...new Set(extract.jobListings.map(j => j.title).filter(Boolean))];
           hiring.keyRoles = uniqueTitles.slice(0, 5).join(', ');
+        }
+
+        // FALLBACK: If structured extraction failed, parse job count from markdown
+        if (!firecrawlSuccess && scrapeResult.markdown) {
+          const markdown = scrapeResult.markdown.toLowerCase();
+
+          // Look for job listing patterns in markdown
+          const jobPatterns = [
+            /(\d+)\s*(?:open\s*)?(?:positions?|roles?|jobs?|openings?)/gi,
+            /(?:we\s*have|currently\s*have|there\s*are)\s*(\d+)\s*(?:open|available)/gi,
+            /showing\s*(\d+)\s*(?:of\s*\d+)?\s*(?:jobs?|roles?|positions?)/gi,
+          ];
+
+          for (const pattern of jobPatterns) {
+            const match = markdown.match(pattern);
+            if (match) {
+              const numMatch = match[0].match(/(\d+)/);
+              if (numMatch) {
+                hiring.totalJobs = parseInt(numMatch[1]);
+                hiring.source = 'firecrawl_markdown';
+                firecrawlSuccess = true;
+                break;
+              }
+            }
+          }
+
+          // If no count found but page has job-related keywords, mark as hiring
+          if (!firecrawlSuccess) {
+            const hiringSignals = ['apply now', 'view job', 'job description', 'open positions',
+                                   'join our team', 'we\'re hiring', 'careers at', 'see all jobs'];
+            const hasHiringSignals = hiringSignals.some(signal => markdown.includes(signal));
+            if (hasHiringSignals) {
+              hiring.status = 'Hiring';  // We know they're hiring even if we can't count
+              hiring.source = 'firecrawl_signals';
+              firecrawlSuccess = true;  // Mark as partial success
+            }
+          }
         }
       }
     } catch (e) {
@@ -1310,70 +1404,89 @@ async function fetchHiringIntelligence(companyName, domain, careersUrl, tavilyAp
     }
   }
 
-  // Step 4: Use Perplexity to fill in gaps (only if we don't have good data from Firecrawl)
-  if (perplexityApiKey && (!firecrawlSuccess || hiring.totalJobs === 0)) {
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${perplexityApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-sonar-small-128k-online',
-        messages: [
-          {
-            role: 'user',
-            content: `Find the EXACT number of open jobs at ${companyName} (${domain}).
+  // Step 4: Use Perplexity to fill in gaps (run if status is still Unknown OR we have no job count)
+  if (perplexityApiKey && (hiring.status === 'Unknown' || hiring.totalJobs === 0)) {
+    try {
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${perplexityApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-sonar-small-128k-online',
+          messages: [
+            {
+              role: 'user',
+              content: `How many open jobs does ${companyName} (${domain}) currently have?
 
-IMPORTANT: The same job often appears on multiple sites (LinkedIn, Indeed, Glassdoor, company careers page).
-I need the DEDUPLICATED count - unique positions only.
+IMPORTANT: Search their OFFICIAL careers page, not job boards.
 
-Steps:
-1. Go to their official careers page: ${careersUrl || domain + '/careers'}
-2. Count unique job titles (not duplicate postings)
-3. Check their ATS (Greenhouse, Lever, Ashby, Workable) if applicable
-4. Identify how many are specifically in New York City / NYC
+Search these sources in order:
+1. Go directly to ${careersUrl || domain + '/careers'} and COUNT the job listings
+2. Check for Greenhouse URL: boards.greenhouse.io/${companyName.toLowerCase().replace(/\s+/g, '')}
+3. Check for Lever URL: jobs.lever.co/${companyName.toLowerCase().replace(/\s+/g, '')}
+4. Check for Ashby URL: jobs.ashbyhq.com/${companyName.toLowerCase().replace(/\s+/g, '')}
+5. Search their LinkedIn company page Jobs tab
+
+Count the ACTUAL number of job postings you see. Be specific.
+If the careers page says "X open positions" or "Showing X jobs", use that number.
 
 Return JSON only:
 {
-  "totalJobs": number (unique positions, not duplicates across job boards),
-  "nycJobs": number (positions specifically in NYC/New York),
-  "hiringStatus": "Actively Hiring" or "Selective" or "Hiring Freeze" or "Unknown",
-  "keyRoles": "comma-separated list of 3-5 notable open positions",
-  "source": "where you found this info (careers page URL or ATS name)"
+  "totalJobs": number (count of job listings you found, use 0 only if truly no jobs),
+  "nycJobs": number (jobs specifically mentioning NYC/New York),
+  "hiringStatus": "Actively Hiring" (10+) or "Selective" (3-10) or "Limited" (1-2) or "No Open Roles" (0),
+  "keyRoles": "comma-separated list of 3-5 actual job titles you see",
+  "source": "exact URL where you found the jobs"
 }`
-          },
-        ],
-        max_tokens: 400,
-      }),
-    });
+            },
+          ],
+          max_tokens: 400,
+        }),
+      });
 
-    if (response.ok) {
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        // Only use Perplexity data if we don't have better data from Firecrawl
-        if (!firecrawlSuccess) {
-          hiring.totalJobs = parsed.totalJobs || hiring.totalJobs;
-          hiring.nycJobs = parsed.nycJobs || 0;
-          hiring.keyRoles = parsed.keyRoles || '';
-          if (parsed.source) hiring.source = parsed.source;
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            // Use Perplexity data if we don't have Firecrawl data
+            if (hiring.totalJobs === 0 && parsed.totalJobs > 0) {
+              hiring.totalJobs = parsed.totalJobs;
+              hiring.nycJobs = parsed.nycJobs || 0;
+              hiring.keyRoles = parsed.keyRoles || '';
+              if (parsed.source) hiring.source = parsed.source;
+            }
+            // Always use Perplexity status if current status is Unknown
+            if (hiring.status === 'Unknown' && parsed.hiringStatus) {
+              hiring.status = parsed.hiringStatus;
+            }
+          } catch (e) {
+            // JSON parse failed
+          }
         }
-        hiring.status = parsed.hiringStatus || hiring.status;
       }
+    } catch (e) {
+      console.log('Perplexity hiring search failed:', e.message);
     }
   }
 
-  // Determine hiring status if still unknown
-  if (hiring.status === 'Unknown' && hiring.totalJobs > 0) {
+  // Final status determination logic
+  if (hiring.status === 'Unknown') {
     if (hiring.totalJobs > 20) {
       hiring.status = 'Actively Hiring';
     } else if (hiring.totalJobs > 5) {
       hiring.status = 'Selective';
-    } else {
+    } else if (hiring.totalJobs > 0) {
       hiring.status = 'Limited Hiring';
+    } else if (careersUrl) {
+      // We have a careers URL but couldn't count jobs - likely still hiring
+      hiring.status = 'Hiring (unconfirmed)';
+    } else {
+      hiring.status = 'No Data';
     }
   }
 

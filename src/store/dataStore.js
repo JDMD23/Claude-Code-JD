@@ -246,11 +246,16 @@ export function saveDossierToCompany(companyId, dossier) {
   const companyName = dossier.company?.companyName || companies[index].organizationName;
 
   // Merge dossier data into company record
+  // IMPORTANT: Preserve CSV description if it exists (don't overwrite with agent-generated)
+  const existingDescription = companies[index].description;
+  const hasExistingDescription = existingDescription && existingDescription.trim().length > 0;
+
   companies[index] = {
     ...companies[index],
     // Company overview
     organizationName: companyName,
-    description: dossier.company?.description || companies[index].description,
+    // Keep CSV description if present; only use dossier description if CSV was empty
+    description: hasExistingDescription ? existingDescription : (dossier.company?.description || ''),
     industry: dossier.company?.industry || companies[index].industry,
     foundedDate: dossier.company?.founded || companies[index].foundedDate,
     headquarters: dossier.company?.headquarters || companies[index].headquarters,
