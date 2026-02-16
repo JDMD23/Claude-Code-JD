@@ -71,7 +71,12 @@ export const COMMISSION_STATUSES = [
 
 // ============ SETTINGS ============
 export function getSettings() {
-  return loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+  const stored = loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+  // Merge with defaults so new keys (e.g. exaApiKey) are always present
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+  // Migrate: remove dead tavilyApiKey if leftover
+  delete merged.tavilyApiKey;
+  return merged;
 }
 
 export function saveSettings(settings) {
