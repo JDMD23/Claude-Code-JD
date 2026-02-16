@@ -1,0 +1,204 @@
+/* Dashboard Specific Styles */
+
+.dash-card {
+  padding: 1.25rem;
+}
+
+.dash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.dash-card-header h3 {
+  font-size: var(--text-h3);
+}
+
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: var(--text-caption);
+  gap: 0.375rem;
+}
+
+/* Pipeline Snapshot */
+.pipeline-snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pipeline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pipeline-stage-name {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  width: 140px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline-bar-track {
+  flex: 1;
+  height: 6px;
+  background-color: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pipeline-bar-fill {
+  height: 100%;
+  background-color: var(--accent-primary);
+  border-radius: 3px;
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.pipeline-count {
+  font-size: var(--text-caption);
+  color: var(--text-primary);
+  font-weight: 600;
+  width: 24px;
+  text-align: right;
+}
+
+/* Commission Summary */
+.commission-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.commission-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.commission-row:last-child {
+  border-bottom: none;
+}
+
+.commission-row.highlight {
+  border-bottom: none;
+  padding-top: 0.625rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.commission-label {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+.commission-amount {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.commission-row.highlight .commission-amount {
+  color: var(--status-green);
+}
+
+/* Follow-ups */
+.followup-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.followup-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.followup-group.overdue .followup-group-header {
+  color: var(--status-red);
+}
+
+.followup-group.today .followup-group-header {
+  color: var(--status-yellow);
+}
+
+.followup-count {
+  background-color: var(--bg-tertiary);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.followup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.375rem 0 0.375rem 1.25rem;
+  font-size: var(--text-caption);
+}
+
+.followup-item span:first-child {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Activity Feed */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.activity-message {
+  font-size: var(--text-caption);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.activity-time {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
