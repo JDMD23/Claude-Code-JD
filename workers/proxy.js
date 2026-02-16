@@ -117,9 +117,9 @@ async function fetchPerplexity(domain, apiKey) {
   "description": "one sentence about what the company does",
   "industry": "",
   "founded": "",
-  "headquarters": "city, state",
+  "headquarters": "HQ street address or city, state if exact address unknown",
   "employeeCount": "number or estimate",
-  "nycAddress": "their NYC office address if known, or empty",
+  "nycAddress": "exact NYC street address like '123 Broadway, New York, NY 10001' or empty if unknown",
   "nycOfficeConfirmed": "Yes or No or Unknown",
   "workPolicyQuote": "remote, hybrid, or in-office based on job listings or press",
   "totalJobs": "approximate open positions",
@@ -165,14 +165,22 @@ async function fetchNYCAddress(companyName, domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `What is the NYC office address for the company "${companyName}" (website: ${domain})? Search for their New York City office location, Manhattan address, or NYC headquarters.
+          content: `Search the web for: "${companyName}" NYC office address OR "${companyName}" New York office location OR "${companyName}" Manhattan office
 
-Return ONLY valid JSON: {"nycAddress": "full street address or empty string if not found", "nycOfficeConfirmed": "Yes or No"}
+I need the EXACT street address of their New York City office. Look for:
+- Their website contact/location page
+- LinkedIn company page
+- Job postings mentioning NYC office
+- News articles about their NYC location
+- WeWork/coworking listings
 
-If you cannot find a confirmed NYC office address, return empty strings. Do not guess.`,
+Return ONLY valid JSON:
+{"nycAddress": "exact street address like '123 Main St, Floor 5, New York, NY 10001' or empty if not found", "nycOfficeConfirmed": "Yes or No"}
+
+I need a real street address with building number. Do not return just "New York" or "Manhattan" - I need the full address.`,
         },
       ],
-      max_tokens: 150,
+      max_tokens: 200,
     }),
   });
 
