@@ -299,11 +299,15 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
 }
 
 // Company Detail Modal
-function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent }) {
+function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent, onViewDossier }) {
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState(null);
+  const [copiedEmail, setCopiedEmail] = useState(false);
+  const contacts = getContactsByCompany(company?.id);
 
   if (!company) return null;
+
+  const dossier = company.lastDossier;
 
   const domain = getDomain(company.website);
 
@@ -443,6 +447,87 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent }) {
             <InfoRow label="Key Contacts" value={company.keyContacts} />
           </div>
 
+          {/* Decision Makers from saved contacts */}
+          {contacts.length > 0 && (
+            <div className="info-section">
+              <h4><UserCheck size={16} strokeWidth={1.5} /> Decision Makers</h4>
+              <div className="contacts-list">
+                {contacts.map((contact, idx) => (
+                  <div key={contact.id || idx} className="contact-item">
+                    <div className="contact-info">
+                      <span className="contact-name">{contact.name}</span>
+                      {contact.title && <span className="contact-title">{contact.title}</span>}
+                    </div>
+                    <div className="contact-links">
+                      {contact.email && (
+                        <a href={`mailto:${contact.email}`} className="contact-link" title={contact.email}>
+                          <Mail size={14} strokeWidth={1.5} />
+                        </a>
+                      )}
+                      {contact.linkedin && (
+                        <a href={contact.linkedin} target="_blank" rel="noopener noreferrer" className="contact-link" title="LinkedIn">
+                          <ExternalLink size={14} strokeWidth={1.5} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent News from dossier */}
+          {dossier?.recentNews?.length > 0 && (
+            <div className="info-section">
+              <h4><Newspaper size={16} strokeWidth={1.5} /> Recent News</h4>
+              <div className="news-list">
+                {dossier.recentNews.slice(0, 5).map((news, idx) => (
+                  <div key={idx} className="news-item">
+                    <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-title">
+                      {news.title}
+                    </a>
+                    {news.snippet && <p className="news-snippet">{news.snippet}</p>}
+                    {news.source && <span className="news-source">{news.source}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Saved Outreach Email from dossier */}
+          {dossier?.outreachEmail && (
+            <div className="info-section">
+              <h4><Mail size={16} strokeWidth={1.5} /> Generated Outreach Email</h4>
+              <div className="outreach-email-box">
+                <pre className="outreach-email-text">{dossier.outreachEmail}</pre>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(dossier.outreachEmail);
+                    setCopiedEmail(true);
+                    setTimeout(() => setCopiedEmail(false), 2000);
+                  }}
+                >
+                  {copiedEmail ? <><CheckCircle size={14} /> Copied!</> : <><Copy size={14} /> Copy Email</>}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Research metadata */}
+          {company.lastResearchedAt && (
+            <div className="info-section research-meta">
+              <span className="text-muted">
+                Last researched: {new Date(company.lastResearchedAt).toLocaleDateString()} at {new Date(company.lastResearchedAt).toLocaleTimeString()}
+              </span>
+              {dossier && (
+                <button className="btn btn-secondary btn-sm" onClick={() => onViewDossier && onViewDossier(dossier, company.id)}>
+                  <Bot size={14} strokeWidth={1.5} /> View Full Dossier
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="modal-danger-zone">
             <button
               className="btn btn-danger btn-sm"
@@ -508,10 +593,10 @@ function AddToCRMModal({ selectedCompanies, onClose, onAdd }) {
 }
 
 // Research Agent Dossier Modal
-function DossierModal({ dossier, companyId, onClose, onSaveToCompany }) {
+function DossierModal({ dossier, companyId, onClose, onSaveToCompany, alreadySaved = false }) {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(alreadySaved);
   const [followUpCreated, setFollowUpCreated] = useState({});
 
   if (!dossier) return null;
@@ -964,6 +1049,15 @@ function MasterList() {
       });
       clearInterval(progressInterval);
       setAgentProgress({ step: 6, total: 6, message: 'Research complete!' });
+
+      // Auto-save dossier to company immediately
+      const updated = saveDossierToCompany(companyId, dossier);
+      setCompanies(updated);
+
+      // Also refresh selectedCompany if it's the one we just enriched
+      const refreshed = updated.find(c => c.id === companyId);
+      if (refreshed) setSelectedCompany(refreshed);
+
       setAgentDossier(dossier);
       setAgentRunning(false);
     } catch (err) {
@@ -1272,6 +1366,10 @@ function MasterList() {
           onEnrich={handleEnrichCompany}
           onDelete={handleDeleteCompany}
           onRunAgent={handleRunAgent}
+          onViewDossier={(dossier, companyId) => {
+            setAgentDossier(dossier);
+            setAgentCompanyId(companyId);
+          }}
         />
       )}
 
@@ -1294,6 +1392,7 @@ function MasterList() {
         <DossierModal
           dossier={agentDossier}
           companyId={agentCompanyId}
+          alreadySaved={true}
           onClose={() => {
             setAgentDossier(null);
             setAgentCompanyId(null);
