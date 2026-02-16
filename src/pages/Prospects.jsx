@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, LayoutGrid, List, X, Users, Building2, Mail, Phone, FileText, Search, ExternalLink, Trash2 } from 'lucide-react';
-import { getProspects, saveProspect, deleteProspect, updateProspectStage, addProspectNote, PROSPECT_STAGES } from '../store/dataStore';
+import { Plus, LayoutGrid, List, X, Users, Building2, Mail, Phone, FileText, Search, ExternalLink, Trash2, ArrowRight, CheckCircle } from 'lucide-react';
+import { getProspects, saveProspect, deleteProspect, updateProspectStage, addProspectNote, PROSPECT_STAGES, convertProspectToDeal } from '../store/dataStore';
+import { useNavigate } from 'react-router-dom';
 import './Pages.css';
 import './DealPipeline.css';
 
@@ -10,10 +11,28 @@ function Prospects() {
   const [showModal, setShowModal] = useState(false);
   const [editingProspect, setEditingProspect] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [conversionSuccess, setConversionSuccess] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     setProspects(getProspects());
   }, []);
+
+  const handleConvertToDeal = (prospectId) => {
+    const result = convertProspectToDeal(prospectId);
+    setProspects(result.prospects);
+    setShowModal(false);
+    setEditingProspect(null);
+    setConversionSuccess(result.deal.clientName);
+
+    // Show success message then navigate
+    setTimeout(() => {
+      setConversionSuccess(null);
+      navigate('/deals');
+    }, 1500);
+
+    return result;
+  };
 
   const handleSave = (data) => {
     const updated = saveProspect(data);
@@ -217,7 +236,15 @@ function Prospects() {
           onDelete={handleDelete}
           onAddNote={handleAddNote}
           onStageChange={handleStageChange}
+          onConvertToDeal={handleConvertToDeal}
         />
+      )}
+
+      {conversionSuccess && (
+        <div className="toast toast-success">
+          <CheckCircle size={18} strokeWidth={2} />
+          <span>"{conversionSuccess}" converted to Deal! Redirecting...</span>
+        </div>
       )}
     </div>
   );
@@ -258,7 +285,7 @@ function ProspectCard({ prospect, onClick }) {
   );
 }
 
-function ProspectModal({ prospect, onClose, onSave, onDelete, onAddNote, onStageChange }) {
+function ProspectModal({ prospect, onClose, onSave, onDelete, onAddNote, onStageChange, onConvertToDeal }) {
   const [formData, setFormData] = useState({
     organizationName: '',
     website: '',
@@ -270,6 +297,20 @@ function ProspectModal({ prospect, onClose, onSave, onDelete, onAddNote, onStage
     ...prospect,
   });
   const [newNote, setNewNote] = useState('');
+  const [converting, setConverting] = useState(false);
+  const [converted, setConverted] = useState(!!prospect?.convertedToDealId);
+
+  const handleConvertToDeal = async () => {
+    if (!prospect?.id || converting) return;
+    setConverting(true);
+    try {
+      await onConvertToDeal(prospect.id);
+      setConverted(true);
+    } catch (err) {
+      alert('Error converting: ' + (err.message || 'Unknown error'));
+    }
+    setConverting(false);
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -429,6 +470,22 @@ function ProspectModal({ prospect, onClose, onSave, onDelete, onAddNote, onStage
               </button>
             )}
             <div className="footer-right">
+              {isEdit && !converted && (
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={handleConvertToDeal}
+                  disabled={converting}
+                  title="Create a Deal from this Prospect"
+                >
+                  {converting ? 'Converting...' : <><ArrowRight size={16} strokeWidth={1.5} /> Convert to Deal</>}
+                </button>
+              )}
+              {isEdit && converted && (
+                <span className="converted-badge">
+                  <CheckCircle size={14} strokeWidth={2} /> Converted to Deal
+                </span>
+              )}
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn btn-primary">
                 {isEdit ? 'Save Changes' : 'Add Prospect'}

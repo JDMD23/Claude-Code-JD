@@ -85,10 +85,12 @@ export function saveDeal(deal) {
       deals[index] = { ...deals[index], ...deal, updatedAt: now };
     }
   } else {
-    // Create new deal
+    // Create new deal with proper FK relationships
     const newDeal = {
       ...deal,
       id: uuidv4(),
+      prospectId: deal.prospectId || null,    // FK to Prospect
+      companyId: deal.companyId || null,      // FK to MasterList company
       createdAt: now,
       updatedAt: now,
       stageHistory: [{ stage: deal.stage || 'kickoff', date: now }],
@@ -99,6 +101,56 @@ export function saveDeal(deal) {
 
   saveData(STORAGE_KEYS.DEALS, deals);
   return deals;
+}
+
+// Convert a Prospect to a Deal (one-click conversion)
+export function convertProspectToDeal(prospectId) {
+  const prospects = getProspects();
+  const prospect = prospects.find(p => p.id === prospectId);
+
+  if (!prospect) {
+    throw new Error('Prospect not found');
+  }
+
+  const now = new Date().toISOString();
+  const deals = getDeals();
+
+  // Create deal from prospect data
+  const newDeal = {
+    id: uuidv4(),
+    prospectId: prospect.id,                    // Link back to prospect
+    companyId: prospect.masterListId || null,   // Link to MasterList company
+    clientName: prospect.organizationName,
+    dealNickname: '',
+    contactName: prospect.contactName || '',
+    contactEmail: prospect.contactEmail || '',
+    contactPhone: prospect.contactPhone || '',
+    website: prospect.website || '',
+    squareFootage: '',
+    targetBudget: '',
+    targetDate: '',
+    notes: `Converted from Prospect on ${new Date().toLocaleDateString()}`,
+    stage: 'kickoff',
+    stageHistory: [{ stage: 'kickoff', date: now }],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  deals.push(newDeal);
+  saveData(STORAGE_KEYS.DEALS, deals);
+
+  // Update prospect to mark as converted
+  const prospectIndex = prospects.findIndex(p => p.id === prospectId);
+  if (prospectIndex !== -1) {
+    prospects[prospectIndex].convertedToDealId = newDeal.id;
+    prospects[prospectIndex].convertedAt = now;
+    prospects[prospectIndex].crmStage = 'clients';  // Move to "Clients" stage
+    saveData(STORAGE_KEYS.PROSPECTS, prospects);
+  }
+
+  logActivity('prospect_converted', `${prospect.organizationName} converted to Deal`);
+
+  return { deal: newDeal, deals, prospects };
 }
 
 export function updateDealStage(dealId, newStage) {
@@ -144,6 +196,59 @@ export function addToMasterList(companies) {
   saveData(STORAGE_KEYS.MASTER_LIST, updated);
   logActivity('companies_imported', `${companies.length} companies imported to Master List`);
   return updated;
+}
+
+// Persist Research Agent dossier to Company record
+export function saveDossierToCompany(companyId, dossier) {
+  const companies = getMasterList();
+  const index = companies.findIndex(c => c.id === companyId);
+
+  if (index === -1) {
+    throw new Error('Company not found');
+  }
+
+  const now = new Date().toISOString();
+
+  // Merge dossier data into company record
+  companies[index] = {
+    ...companies[index],
+    // Company overview
+    organizationName: dossier.company?.companyName || companies[index].organizationName,
+    description: dossier.company?.description || companies[index].description,
+    industry: dossier.company?.industry || companies[index].industry,
+    foundedDate: dossier.company?.founded || companies[index].foundedDate,
+    headquarters: dossier.company?.headquarters || companies[index].headquarters,
+    employeeCount: dossier.company?.employeeCount || companies[index].employeeCount,
+    // Funding
+    totalFunding: dossier.company?.totalFunding || companies[index].totalFunding,
+    topInvestors: dossier.company?.topInvestors || companies[index].topInvestors,
+    lastFundingType: dossier.company?.lastFundingType || companies[index].lastFundingType,
+    lastFundingDate: dossier.company?.lastFundingDate || companies[index].lastFundingDate,
+    // NYC Intel
+    nycAddress: dossier.nycIntel?.address || dossier.company?.nycAddress || companies[index].nycAddress,
+    nycOfficeConfirmed: dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || companies[index].nycOfficeConfirmed,
+    // Hiring
+    hiringStatus: dossier.hiring?.status || companies[index].hiringStatus,
+    totalJobs: dossier.hiring?.totalJobs || companies[index].totalJobs,
+    nycJobs: dossier.hiring?.nycJobs || companies[index].nycJobs,
+    departmentsHiring: dossier.hiring?.keyRoles || companies[index].departmentsHiring,
+    careersUrl: dossier.hiring?.careersUrl || dossier.nycIntel?.careersUrl || companies[index].careersUrl,
+    // Contacts from dossier
+    keyContacts: dossier.contacts?.length > 0
+      ? dossier.contacts.map(c => `${c.name} (${c.title})`).join(', ')
+      : companies[index].keyContacts,
+    // Links
+    linkedinUrl: dossier.company?.linkedinUrl || companies[index].linkedin,
+    // Research metadata
+    lastResearchedAt: now,
+    lastDossier: dossier,  // Store full dossier for reference
+    updatedAt: now,
+  };
+
+  saveData(STORAGE_KEYS.MASTER_LIST, companies);
+  logActivity('dossier_saved', `Research dossier saved for ${companies[index].organizationName}`);
+
+  return companies;
 }
 
 // ============ PROSPECTS ============
@@ -241,6 +346,8 @@ export function saveCommission(commission) {
     commissions.push({
       ...commission,
       id: uuidv4(),
+      dealId: commission.dealId || null,       // FK to Deal
+      companyId: commission.companyId || null, // FK to MasterList company
       calculatedAmount,
       createdAt: now,
       updatedAt: now,
@@ -250,6 +357,49 @@ export function saveCommission(commission) {
 
   saveData(STORAGE_KEYS.COMMISSIONS, commissions);
   return commissions;
+}
+
+// Auto-create Commission when Deal closes
+export function createCommissionFromDeal(dealId) {
+  const deals = getDeals();
+  const deal = deals.find(d => d.id === dealId);
+
+  if (!deal) {
+    throw new Error('Deal not found');
+  }
+
+  // Check if commission already exists for this deal
+  const existingCommissions = getCommissions();
+  const existing = existingCommissions.find(c => c.dealId === dealId);
+  if (existing) {
+    return { commission: existing, commissions: existingCommissions, alreadyExists: true };
+  }
+
+  const now = new Date().toISOString();
+
+  const newCommission = {
+    id: uuidv4(),
+    dealId: deal.id,                           // Link to Deal
+    companyId: deal.companyId || null,         // Link to MasterList company
+    prospectId: deal.prospectId || null,       // Link to Prospect
+    clientName: deal.clientName,
+    squareFootage: deal.squareFootage || '',
+    annualRent: deal.targetBudget || '',       // Use target budget as starting point
+    leaseTerm: '',                             // User needs to fill in
+    commissionRate: '4',                       // Default 4%
+    status: 'in_contract',                     // Auto-set to "In Contract"
+    calculatedAmount: 0,
+    notes: `Auto-created from Deal on ${new Date().toLocaleDateString()}`,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  existingCommissions.push(newCommission);
+  saveData(STORAGE_KEYS.COMMISSIONS, existingCommissions);
+
+  logActivity('commission_auto_created', `Commission auto-created for ${deal.clientName}`);
+
+  return { commission: newCommission, commissions: existingCommissions, alreadyExists: false };
 }
 
 export function deleteCommission(commissionId) {

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText, Check } from 'lucide-react';
+import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText, Check, CheckCircle } from 'lucide-react';
 import { DndContext, closestCenter, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES } from '../store/dataStore';
+import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES, createCommissionFromDeal } from '../store/dataStore';
+import { useNavigate } from 'react-router-dom';
 import './Pages.css';
 import './DealPipeline.css';
 
@@ -341,6 +342,8 @@ function DealPipeline() {
   const [showModal, setShowModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
   const [activeId, setActiveId] = useState(null);
+  const [commissionToast, setCommissionToast] = useState(null);
+  const navigate = useNavigate();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -353,6 +356,21 @@ function DealPipeline() {
   useEffect(() => {
     setDeals(getDeals());
   }, []);
+
+  // Auto-create commission when deal moves to "closed"
+  const handleDealClosed = (dealId, clientName) => {
+    try {
+      const result = createCommissionFromDeal(dealId);
+      if (!result.alreadyExists) {
+        setCommissionToast(clientName);
+        setTimeout(() => {
+          setCommissionToast(null);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Error creating commission:', err);
+    }
+  };
 
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
@@ -398,6 +416,11 @@ function DealPipeline() {
       if (activeDeal && activeDeal.stage !== newStage) {
         const updated = updateDealStage(activeId, newStage);
         setDeals(updated);
+
+        // Auto-create commission when deal moves to "closed"
+        if (newStage === 'closed') {
+          handleDealClosed(activeId, activeDeal.clientName);
+        }
       }
     }
   };
@@ -497,6 +520,22 @@ function DealPipeline() {
           onSave={handleSaveDeal}
           onDelete={handleDeleteDeal}
         />
+      )}
+
+      {commissionToast && (
+        <div className="toast toast-success">
+          <CheckCircle size={18} strokeWidth={2} />
+          <span>Commission created for "{commissionToast}"!</span>
+          <button
+            className="toast-action"
+            onClick={() => {
+              setCommissionToast(null);
+              navigate('/commissions');
+            }}
+          >
+            View →
+          </button>
+        </div>
       )}
     </div>
   );

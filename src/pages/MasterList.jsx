@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2, Bot, Mail, Newspaper, UserCheck, Copy, CheckCircle } from 'lucide-react';
-import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS } from '../store/dataStore';
+import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany, runResearchAgent, AGENT_STEPS, saveDossierToCompany } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
 import './MasterList.css';
@@ -328,7 +328,7 @@ function CompanyModal({ company, onClose, onEnrich, onDelete, onRunAgent }) {
 
   const handleRunAgent = () => {
     if (domain && onRunAgent) {
-      onRunAgent(domain);
+      onRunAgent(domain, company.id);
       onClose(); // Close this modal, agent modal will open
     }
   };
@@ -508,8 +508,10 @@ function AddToCRMModal({ selectedCompanies, onClose, onAdd }) {
 }
 
 // Research Agent Dossier Modal
-function DossierModal({ dossier, onClose }) {
+function DossierModal({ dossier, companyId, onClose, onSaveToCompany }) {
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   if (!dossier) return null;
 
@@ -519,6 +521,18 @@ function DossierModal({ dossier, onClose }) {
       setCopiedEmail(true);
       setTimeout(() => setCopiedEmail(false), 2000);
     }
+  };
+
+  const handleSaveToCompany = async () => {
+    if (!companyId || saving) return;
+    setSaving(true);
+    try {
+      await onSaveToCompany(companyId, dossier);
+      setSaved(true);
+    } catch (err) {
+      alert('Error saving: ' + (err.message || 'Unknown error'));
+    }
+    setSaving(false);
   };
 
   return (
@@ -534,9 +548,25 @@ function DossierModal({ dossier, onClose }) {
               </span>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose}>
-            <X size={20} />
-          </button>
+          <div className="dossier-actions">
+            {companyId && !saved && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveToCompany}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : <><CheckCircle size={14} strokeWidth={1.5} /> Save to Company</>}
+              </button>
+            )}
+            {saved && (
+              <span className="saved-badge">
+                <CheckCircle size={14} strokeWidth={2} /> Saved!
+              </span>
+            )}
+            <button className="modal-close" onClick={onClose}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="modal-body dossier-body">
@@ -761,6 +791,7 @@ function MasterList() {
   const [agentProgress, setAgentProgress] = useState(null);
   const [agentDossier, setAgentDossier] = useState(null);
   const [agentRunning, setAgentRunning] = useState(false);
+  const [agentCompanyId, setAgentCompanyId] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -869,10 +900,11 @@ function MasterList() {
     });
   };
 
-  const handleRunAgent = async (domain) => {
+  const handleRunAgent = async (domain, companyId) => {
     setAgentRunning(true);
     setAgentProgress({ step: 1, total: 6, message: 'Starting research agent...' });
     setAgentDossier(null);
+    setAgentCompanyId(companyId);
 
     // Simulate progress updates (actual progress comes from API completion)
     const progressInterval = setInterval(() => {
@@ -1223,7 +1255,15 @@ function MasterList() {
       {agentDossier && !agentRunning && (
         <DossierModal
           dossier={agentDossier}
-          onClose={() => setAgentDossier(null)}
+          companyId={agentCompanyId}
+          onClose={() => {
+            setAgentDossier(null);
+            setAgentCompanyId(null);
+          }}
+          onSaveToCompany={(companyId, dossier) => {
+            const updated = saveDossierToCompany(companyId, dossier);
+            setCompanies(updated);
+          }}
         />
       )}
     </div>
