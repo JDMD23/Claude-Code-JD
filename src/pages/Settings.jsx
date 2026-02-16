@@ -27,7 +27,7 @@ function Settings() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await enrichCompany('stripe.com', settings);
+      const result = await enrichCompany('rogo.ai', settings);
       const hasData = Object.keys(result).length > 0;
       setTestResult({
         success: hasData,
@@ -129,7 +129,7 @@ function Settings() {
             disabled={testing || (!settings.apolloApiKey && !settings.perplexityApiKey)}
           >
             <Zap size={16} strokeWidth={1.5} />
-            {testing ? 'Testing...' : 'Test with stripe.com'}
+            {testing ? 'Testing...' : 'Test with rogo.ai'}
           </button>
         </div>
 
