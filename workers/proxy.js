@@ -410,28 +410,67 @@ function calculateFundingScore(fundingStr) {
   return 0;
 }
 
-function generateOutreachEmail(companyName, dossier) {
-  const hooks = [];
-  if (dossier.nycAddress) hooks.push(`I noticed your team at ${dossier.nycAddress}`);
-  if (dossier.recentNews) hooks.push(`Congrats on the recent ${dossier.recentNews}`);
-  if (dossier.employeeCount) hooks.push(`With your team of ${dossier.employeeCount}`);
+async function generateOutreachEmail(perplexityKey, companyName, dossier, csvData = {}) {
+  const contactName = dossier.decisionMakers?.[0]?.name || '';
+  const greeting = contactName ? `Hi ${contactName.split(' ')[0]}` : 'Hi';
+  const funding = csvData.totalFunding || dossier.funding?.totalFunding || '';
+  const investors = csvData.topInvestors || dossier.funding?.topInvestors || '';
+  const recentNews = dossier.news?.[0]?.title || '';
+  const hiringIntel = dossier.hiringIntel || '';
+  const employees = dossier.company?.employeeCount || csvData.employeeCount || '';
 
-  const hook = hooks[0] || `I've been following ${companyName}'s growth`;
+  if (perplexityKey) {
+    const prompt = `Write a cold outreach email from a NYC commercial real estate broker to ${companyName}.
 
-  return `Subject: ${companyName} - Office Space Strategy
+Context:
+- Contact: ${contactName || 'Unknown'}
+- Funding: ${funding}
+- Investors: ${investors}
+- Recent News: ${recentNews}
+- Hiring: ${hiringIntel}
+- Employees: ${employees}
+- NYC Address: ${dossier.nycAddress || 'Unknown'}
 
-Hi,
+Rules:
+1. Start with a specific hook about their company (funding, news, hiring growth, or investors)
+2. Keep it to 3-4 sentences MAX (under 80 words body)
+3. Mention you help VC-backed tech companies find NYC office space
+4. End with casual CTA like "Worth a quick chat?"
+5. Tone: Friendly, NOT salesy
+6. Address to ${contactName || 'the team'}
 
-${hook}, I wanted to reach out. I'm a tenant rep broker in NYC specializing in helping VC-backed tech companies find the right space.
+Return ONLY JSON: {"subject": "under 8 words", "body": "the email body"}`;
 
-I help companies like yours:
-- Navigate NYC's complex commercial lease market
-- Negotiate favorable terms (we typically save clients 15-25% vs. going direct)
-- Find spaces that match your growth trajectory and culture
+    try {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${perplexityKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+        }),
+      });
 
-Would you be open to a quick 15-minute call to discuss your current space situation and any upcoming needs?
+      if (!res.ok) throw new Error('API error');
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return `Subject: ${parsed.subject}\n\n${parsed.body}`;
+      }
+    } catch {
+      // Fall through to template
+    }
+  }
 
-Best regards`;
+  // Fallback template if no API key or API call failed
+  const hook = recentNews ? `I saw the news about ${recentNews.toLowerCase().slice(0, 60)}.`
+    : funding ? `Congrats on the ${funding} raise.`
+    : `I've been following ${companyName}'s growth.`;
+
+  return `Subject: ${companyName} + NYC office space\n\n${greeting},\n\n${hook} I help VC-backed tech companies find office space in NYC and thought I might be able to help.\n\nWorth a quick chat?`;
 }
 
 // ============ ROUTE HANDLERS ============
@@ -665,7 +704,7 @@ async function handleAgent(request, env) {
 
       // STEP 6: Generate outreach email
       progress(6, 'Generating outreach email...');
-      dossier.outreachEmail = generateOutreachEmail(companyName, dossier);
+      dossier.outreachEmail = await generateOutreachEmail(keys.perplexity, companyName, dossier, csvData);
 
       // STEP 7: Scorecard (Prompt 2C.5)
       progress(7, 'Calculating scores...');
