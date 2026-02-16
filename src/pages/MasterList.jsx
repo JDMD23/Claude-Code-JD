@@ -532,10 +532,26 @@ function MasterList() {
       }, company);
 
       if (result) {
-        // Merge dossier into the company record
+        // Merge dossier into the company record + promote key fields to top level
         const updatedCompanies = getMasterList().map(c => {
           if (c.id === company.id) {
-            return { ...c, dossier: result, lastResearchedAt: new Date().toISOString() };
+            return {
+              ...c,
+              dossier: result,
+              lastResearchedAt: new Date().toISOString(),
+              // Merge dossier fields to top level (don't overwrite CSV data)
+              description: c.description || result.company?.description || '',
+              employeeCount: c.employeeCount || result.company?.employeeCount || '',
+              headquarters: c.headquarters || result.company?.headquarters || '',
+              nycAddress: c.nycAddress || result.nycAddress || '',
+              nycOfficeConfirmed: result.nycAddress ? 'Yes' : c.nycOfficeConfirmed || '',
+              hiringStatus: result.hiringIntel ? 'Active' : c.hiringStatus || '',
+              careersUrl: c.careersUrl || result.careersUrl || '',
+              // Scoring
+              investorScore: result.investorScore,
+              fundingScore: result.fundingScore,
+              prospectScore: (result.investorScore || 0) + (result.fundingScore || 0),
+            };
           }
           return c;
         });
