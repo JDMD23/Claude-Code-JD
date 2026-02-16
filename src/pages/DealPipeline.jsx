@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText } from 'lucide-react';
+import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText, Check } from 'lucide-react';
 import { DndContext, closestCenter, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -24,11 +24,14 @@ function getStageColor(days) {
   return 'red';
 }
 
-// Sortable Deal Card Component
-function DealCard({ deal, onClick }) {
+// Sortable Deal Card Component with inline editing
+function DealCard({ deal, onClick, onInlineSave }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
   });
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(deal.clientName);
+  const [editNickname, setEditNickname] = useState(deal.dealNickname || '');
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -39,22 +42,67 @@ function DealCard({ deal, onClick }) {
   const daysInStage = getDaysInStage(deal);
   const stageColor = getStageColor(daysInStage);
 
+  const handleInlineSave = (e) => {
+    e.stopPropagation();
+    if (!editName.trim()) return;
+    onInlineSave({ ...deal, clientName: editName.trim(), dealNickname: editNickname.trim() });
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleInlineSave(e);
+    if (e.key === 'Escape') {
+      setEditName(deal.clientName);
+      setEditNickname(deal.dealNickname || '');
+      setIsEditing(false);
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="deal-card"
-      onClick={() => onClick(deal)}
+      className={`deal-card ${isEditing ? 'editing' : ''}`}
+      onClick={() => !isEditing && onClick(deal)}
+      onDoubleClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
     >
       <div className="deal-card-header">
         <div className="drag-handle" {...attributes} {...listeners}>
           <GripVertical size={16} />
         </div>
-        <div className={`stage-indicator ${stageColor}`} title={`${daysInStage} days in stage`} />
+        {isEditing ? (
+          <button className="inline-save-btn" onClick={handleInlineSave} title="Save">
+            <Check size={14} strokeWidth={2} />
+          </button>
+        ) : (
+          <div className={`stage-indicator ${stageColor}`} title={`${daysInStage} days in stage`} />
+        )}
       </div>
 
-      <h4 className="deal-client">{deal.clientName}</h4>
-      {deal.dealNickname && <p className="deal-nickname">{deal.dealNickname}</p>}
+      {isEditing ? (
+        <div className="inline-edit-fields" onClick={(e) => e.stopPropagation()}>
+          <input
+            className="inline-edit-input"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Client name"
+            autoFocus
+          />
+          <input
+            className="inline-edit-input small"
+            value={editNickname}
+            onChange={(e) => setEditNickname(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Nickname (optional)"
+          />
+        </div>
+      ) : (
+        <>
+          <h4 className="deal-client">{deal.clientName}</h4>
+          {deal.dealNickname && <p className="deal-nickname">{deal.dealNickname}</p>}
+        </>
+      )}
 
       <div className="deal-meta">
         {deal.squareFootage && (
@@ -81,7 +129,7 @@ function DealCard({ deal, onClick }) {
 }
 
 // Droppable Column Component
-function KanbanColumn({ stage, deals, onCardClick }) {
+function KanbanColumn({ stage, deals, onCardClick, onInlineSave }) {
   const stageDeals = deals.filter(d => d.stage === stage.id);
 
   return (
@@ -99,7 +147,7 @@ function KanbanColumn({ stage, deals, onCardClick }) {
             </div>
           ) : (
             stageDeals.map(deal => (
-              <DealCard key={deal.id} deal={deal} onClick={onCardClick} />
+              <DealCard key={deal.id} deal={deal} onClick={onCardClick} onInlineSave={onInlineSave} />
             ))
           )}
         </div>
@@ -380,6 +428,11 @@ function DealPipeline() {
     setEditingDeal(null);
   };
 
+  const handleInlineSave = (dealData) => {
+    const updated = saveDeal(dealData);
+    setDeals(updated);
+  };
+
   const handleCardClick = (deal) => {
     setEditingDeal(deal);
     setShowModal(true);
@@ -419,6 +472,7 @@ function DealPipeline() {
               stage={stage}
               deals={deals}
               onCardClick={handleCardClick}
+              onInlineSave={handleInlineSave}
             />
           ))}
         </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Users, DollarSign, Bell, Kanban, Clock, ArrowRight, Activity, AlertTriangle, CheckCircle2, Building2 } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Bell, Kanban, Clock, ArrowRight, Activity, AlertTriangle, CheckCircle2, Building2, Gauge, Timer, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getDashboardStats, DEAL_STAGES } from '../store/dataStore';
+import { getDashboardStats, getPipelineVelocity, DEAL_STAGES } from '../store/dataStore';
 import './Pages.css';
 import './Dashboard.css';
 
@@ -42,10 +42,12 @@ function getActivityIcon(type) {
 
 function Dashboard() {
   const [stats, setStats] = useState(null);
+  const [velocity, setVelocity] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     setStats(getDashboardStats());
+    setVelocity(getPipelineVelocity());
   }, []);
 
   if (!stats) return null;
@@ -155,6 +157,64 @@ function Dashboard() {
               <span className="commission-amount mono">{formatCurrency(stats.commissions.paid)}</span>
             </div>
           </div>
+        </div>
+
+        {/* Pipeline Velocity */}
+        <div className="card dash-card">
+          <div className="dash-card-header">
+            <h3>Pipeline Velocity</h3>
+          </div>
+          {!velocity ? (
+            <div className="empty-state">
+              <p>Add deals and move them through stages to see velocity metrics.</p>
+            </div>
+          ) : (
+            <div className="velocity-metrics">
+              <div className="velocity-kpis">
+                <div className="velocity-kpi">
+                  <Timer size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
+                  <div>
+                    <span className="velocity-kpi-value mono">{velocity.avgCycleTime !== null ? `${velocity.avgCycleTime}d` : '--'}</span>
+                    <span className="velocity-kpi-label">Avg Cycle</span>
+                  </div>
+                </div>
+                <div className="velocity-kpi">
+                  <Target size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
+                  <div>
+                    <span className="velocity-kpi-value mono">{velocity.winRate}%</span>
+                    <span className="velocity-kpi-label">Win Rate</span>
+                  </div>
+                </div>
+                <div className="velocity-kpi">
+                  <Gauge size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
+                  <div>
+                    <span className="velocity-kpi-value mono">{velocity.closedDeals}/{velocity.totalDeals}</span>
+                    <span className="velocity-kpi-label">Closed</span>
+                  </div>
+                </div>
+              </div>
+              <div className="velocity-stages">
+                {DEAL_STAGES.map((stage, idx) => {
+                  const avgDays = velocity.avgDaysPerStage[stage.id];
+                  const conversion = velocity.conversionByStage[stage.id];
+                  if (idx === DEAL_STAGES.length - 1) return null;
+                  return (
+                    <div key={stage.id} className="velocity-stage-row">
+                      <span className="velocity-stage-name">{stage.name}</span>
+                      <div className="velocity-stage-stats">
+                        {avgDays !== null && (
+                          <span className="velocity-stat mono">{avgDays}d avg</span>
+                        )}
+                        {conversion !== null && (
+                          <span className={`velocity-conversion ${conversion >= 50 ? 'good' : 'low'}`}>{conversion}%</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Follow-ups */}

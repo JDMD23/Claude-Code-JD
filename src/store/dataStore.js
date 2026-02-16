@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   FOLLOWUPS: 'dealflow_followups',
   ACTIVITY_LOG: 'dealflow_activity',
   LEASES: 'dealflow_leases',
+  SETTINGS: 'dealflow_settings',
 };
 
 // Helper to load from localStorage
@@ -343,6 +344,211 @@ export function deleteLease(leaseId) {
   const leases = getLeases().filter(l => l.id !== leaseId);
   saveData(STORAGE_KEYS.LEASES, leases);
   return leases;
+}
+
+// ============ CLAUSE REPOSITORY ============
+const STORAGE_CLAUSE_KEY = 'dealflow_clauses';
+
+export const CLAUSE_CATEGORIES = [
+  { id: 'rent', name: 'Rent & Escalations' },
+  { id: 'term', name: 'Term & Renewal' },
+  { id: 'improvements', name: 'Tenant Improvements' },
+  { id: 'sublease', name: 'Sublease & Assignment' },
+  { id: 'maintenance', name: 'Maintenance & Repairs' },
+  { id: 'insurance', name: 'Insurance & Indemnity' },
+  { id: 'default', name: 'Default & Remedies' },
+  { id: 'other', name: 'Other' },
+];
+
+export function getClauses() {
+  return loadData(STORAGE_CLAUSE_KEY, []);
+}
+
+export function saveClause(clause) {
+  const clauses = getClauses();
+  const now = new Date().toISOString();
+
+  if (clause.id) {
+    const index = clauses.findIndex(c => c.id === clause.id);
+    if (index !== -1) {
+      clauses[index] = { ...clauses[index], ...clause, updatedAt: now };
+    }
+  } else {
+    clauses.push({
+      ...clause,
+      id: uuidv4(),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  saveData(STORAGE_CLAUSE_KEY, clauses);
+  return clauses;
+}
+
+export function deleteClause(clauseId) {
+  const clauses = getClauses().filter(c => c.id !== clauseId);
+  saveData(STORAGE_CLAUSE_KEY, clauses);
+  return clauses;
+}
+
+// ============ PIPELINE VELOCITY ============
+export function getPipelineVelocity() {
+  const deals = getDeals();
+  if (deals.length === 0) return null;
+
+  // Calculate avg days per stage
+  const stageTimings = {};
+  DEAL_STAGES.forEach(s => { stageTimings[s.id] = []; });
+
+  deals.forEach(deal => {
+    if (!deal.stageHistory || deal.stageHistory.length < 2) return;
+    for (let i = 1; i < deal.stageHistory.length; i++) {
+      const prev = deal.stageHistory[i - 1];
+      const curr = deal.stageHistory[i];
+      const days = Math.floor((new Date(curr.date) - new Date(prev.date)) / 86400000);
+      if (stageTimings[prev.stage]) {
+        stageTimings[prev.stage].push(days);
+      }
+    }
+  });
+
+  const avgDaysPerStage = {};
+  DEAL_STAGES.forEach(s => {
+    const times = stageTimings[s.id];
+    avgDaysPerStage[s.id] = times.length > 0
+      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
+      : null;
+  });
+
+  // Total avg cycle time (deals that reached closed)
+  const closedDeals = deals.filter(d => d.stage === 'closed' && d.stageHistory?.length >= 2);
+  let avgCycleTime = null;
+  if (closedDeals.length > 0) {
+    const cycleTimes = closedDeals.map(d => {
+      const first = new Date(d.stageHistory[0].date);
+      const last = new Date(d.stageHistory[d.stageHistory.length - 1].date);
+      return Math.floor((last - first) / 86400000);
+    });
+    avgCycleTime = Math.round(cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length);
+  }
+
+  // Conversion: deals that moved past each stage
+  const conversionByStage = {};
+  DEAL_STAGES.forEach((stage, idx) => {
+    if (idx === DEAL_STAGES.length - 1) return;
+    const enteredStage = deals.filter(d =>
+      d.stageHistory?.some(h => h.stage === stage.id)
+    ).length;
+    const passedStage = deals.filter(d =>
+      d.stageHistory?.some(h => h.stage === DEAL_STAGES[idx + 1]?.id)
+    ).length;
+    conversionByStage[stage.id] = enteredStage > 0
+      ? Math.round((passedStage / enteredStage) * 100)
+      : null;
+  });
+
+  return {
+    avgDaysPerStage,
+    avgCycleTime,
+    conversionByStage,
+    totalDeals: deals.length,
+    closedDeals: closedDeals.length,
+    winRate: deals.length > 0 ? Math.round((closedDeals.length / deals.length) * 100) : 0,
+  };
+}
+
+// ============ SETTINGS ============
+const DEFAULT_SETTINGS = {
+  apolloApiKey: '',
+  perplexityApiKey: '',
+  autoEnrich: false,
+  enrichFields: ['industry', 'employeeCount', 'description', 'linkedinUrl'],
+};
+
+export function getSettings() {
+  return loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+}
+
+export function saveSettings(settings) {
+  const merged = { ...DEFAULT_SETTINGS, ...settings };
+  saveData(STORAGE_KEYS.SETTINGS, merged);
+  return merged;
+}
+
+// ============ COMPANY ENRICHMENT ============
+export async function enrichCompany(domain, settings) {
+  const results = {};
+
+  // Perplexity enrichment (AI-powered company research)
+  if (settings?.perplexityApiKey && domain) {
+    try {
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${settings.perplexityApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-sonar-small-128k-online',
+          messages: [
+            {
+              role: 'user',
+              content: `Give me a brief company profile for ${domain}. Return ONLY valid JSON with these fields: {"industry": "", "employeeCount": "", "description": "", "headquarters": "", "founded": ""}. Keep description under 100 characters.`,
+            },
+          ],
+          max_tokens: 300,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            Object.assign(results, parsed);
+          }
+        } catch {
+          // JSON parse failed, skip
+        }
+      }
+    } catch {
+      // Network error, skip
+    }
+  }
+
+  // Apollo enrichment (business data)
+  if (settings?.apolloApiKey && domain) {
+    try {
+      const response = await fetch('https://api.apollo.io/v1/organizations/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Api-Key': settings.apolloApiKey,
+        },
+        body: JSON.stringify({ domain }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const org = data.organization;
+        if (org) {
+          if (org.industry) results.industry = results.industry || org.industry;
+          if (org.estimated_num_employees) results.employeeCount = results.employeeCount || String(org.estimated_num_employees);
+          if (org.short_description) results.description = results.description || org.short_description;
+          if (org.linkedin_url) results.linkedinUrl = org.linkedin_url;
+          if (org.founded_year) results.founded = results.founded || String(org.founded_year);
+          if (org.city) results.headquarters = results.headquarters || `${org.city}, ${org.state || ''}`.trim();
+        }
+      }
+    } catch {
+      // Network error, skip
+    }
+  }
+
+  return results;
 }
 
 // ============ DASHBOARD STATS ============
