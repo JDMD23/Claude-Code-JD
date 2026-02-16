@@ -1,6 +1,6 @@
 // DealFlow Cloudflare Worker Proxy
 // Routes: /enrich, /agent, /chat
-// APIs: Perplexity, Apollo, Tavily, Firecrawl
+// APIs: Perplexity, Apollo, Exa, Firecrawl
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -152,7 +152,7 @@ async function fetchApollo(apiKey, domain) {
   return { organization: orgData, contacts };
 }
 
-async function fetchTavilyAddress(apiKey, companyName, domain) {
+async function fetchExaAddress(apiKey, companyName, domain) {
   // Prompt 5A: Reduced from 5 queries to 2
   const queries = [
     `"${companyName}" office address "New York" OR "NYC" OR "Manhattan"`,
@@ -163,20 +163,31 @@ async function fetchTavilyAddress(apiKey, companyName, domain) {
 
   for (const query of queries) {
     try {
-      const res = await fetch('https://api.tavily.com/search', {
+      const res = await fetch('https://api.exa.ai/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
         body: JSON.stringify({
-          api_key: apiKey,
           query,
-          search_depth: 'advanced',
-          max_results: 5,
+          type: 'auto',
+          numResults: 5,
+          contents: { text: { maxCharacters: 2000 } },
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        allResults.push(...(data.results || []));
+        // Map Exa fields to match expected format
+        const mapped = (data.results || []).map(r => ({
+          title: r.title,
+          url: r.url,
+          content: r.text || '',
+          score: r.score,
+          published_date: r.publishedDate || '',
+        }));
+        allResults.push(...mapped);
       }
     } catch {
       // continue on error
@@ -186,27 +197,40 @@ async function fetchTavilyAddress(apiKey, companyName, domain) {
   return allResults;
 }
 
-async function fetchTavilyNews(apiKey, companyName, domain) {
+async function fetchExaNews(apiKey, companyName, domain) {
   // Prompt 5D: Start with 1 focused query, only run 2nd if <2 results
   const query1 = `"${companyName}" "${domain}" (funding OR expansion OR raised)`;
 
+  // 6 months ago for news recency
+  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+
   let results = [];
   try {
-    const res = await fetch('https://api.tavily.com/search', {
+    const res = await fetch('https://api.exa.ai/search', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
       body: JSON.stringify({
-        api_key: apiKey,
         query: query1,
-        search_depth: 'advanced',
-        max_results: 10,
-        topic: 'news',
+        type: 'auto',
+        numResults: 10,
+        category: 'news',
+        startPublishedDate: sixMonthsAgo,
+        contents: { text: { maxCharacters: 2000 } },
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
-      results = data.results || [];
+      results = (data.results || []).map(r => ({
+        title: r.title,
+        url: r.url,
+        content: r.text || '',
+        score: r.score,
+        published_date: r.publishedDate || '',
+      }));
     }
   } catch {
     // continue
@@ -215,21 +239,32 @@ async function fetchTavilyNews(apiKey, companyName, domain) {
   // Only run 2nd query if <2 high-confidence results
   if (results.filter(r => r.score > 0.7).length < 2) {
     try {
-      const res2 = await fetch('https://api.tavily.com/search', {
+      const res2 = await fetch('https://api.exa.ai/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
         body: JSON.stringify({
-          api_key: apiKey,
           query: `"${companyName}" office lease NYC OR "New York"`,
-          search_depth: 'basic',
-          max_results: 5,
-          topic: 'news',
+          type: 'auto',
+          numResults: 5,
+          category: 'news',
+          startPublishedDate: sixMonthsAgo,
+          contents: { text: { maxCharacters: 2000 } },
         }),
       });
 
       if (res2.ok) {
         const data2 = await res2.json();
-        results.push(...(data2.results || []));
+        const mapped = (data2.results || []).map(r => ({
+          title: r.title,
+          url: r.url,
+          content: r.text || '',
+          score: r.score,
+          published_date: r.publishedDate || '',
+        }));
+        results.push(...mapped);
       }
     } catch {
       // continue
@@ -417,7 +452,7 @@ async function handleAgent(request, env) {
   const keys = {
     perplexity: env.PERPLEXITY_API_KEY,
     apollo: env.APOLLO_API_KEY,
-    tavily: env.TAVILY_API_KEY,
+    exa: env.EXA_API_KEY,
     firecrawl: env.FIRECRAWL_API_KEY,
   };
 
@@ -569,8 +604,8 @@ async function handleAgent(request, env) {
       // STEP 3: NYC address research
       progress(3, 'Searching for NYC office address...');
 
-      if (keys.tavily && !dossier.nycAddress) {
-        const addressResults = await fetchTavilyAddress(keys.tavily, companyName, domain);
+      if (keys.exa && !dossier.nycAddress) {
+        const addressResults = await fetchExaAddress(keys.exa, companyName, domain);
         // Extract address from results
         for (const result of addressResults) {
           const content = (result.content || '').toLowerCase();
@@ -582,7 +617,7 @@ async function handleAgent(request, env) {
           }
         }
 
-        // Use Perplexity as fallback only if Tavily found nothing
+        // Use Perplexity as fallback only if Exa found nothing
         if (!dossier.nycAddress && keys.perplexity && perplexityData.nycAddress) {
           dossier.nycAddress = perplexityData.nycAddress;
         }
@@ -591,8 +626,8 @@ async function handleAgent(request, env) {
       // STEP 4: News search
       progress(4, 'Searching for recent news...');
 
-      if (keys.tavily) {
-        const newsResults = await fetchTavilyNews(keys.tavily, companyName, domain);
+      if (keys.exa) {
+        const newsResults = await fetchExaNews(keys.exa, companyName, domain);
         dossier.news = newsResults.map(r => ({
           title: r.title,
           url: r.url,

@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   proxySecret: '',
   perplexityApiKey: '',
   apolloApiKey: '',
-  tavilyApiKey: '',
+  exaApiKey: '',
   firecrawlApiKey: '',
   autoEnrich: false,
 };

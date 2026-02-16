@@ -145,13 +145,13 @@ function Settings() {
             />
           </div>
           <div className="form-group">
-            <label>Tavily API Key</label>
+            <label>Exa API Key</label>
             <input
               type="password"
-              name="tavilyApiKey"
-              value={settings.tavilyApiKey}
+              name="exaApiKey"
+              value={settings.exaApiKey}
               onChange={handleChange}
-              placeholder="tvly-..."
+              placeholder="Exa API key"
             />
           </div>
           <div className="form-group">
