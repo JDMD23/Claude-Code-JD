@@ -35,8 +35,8 @@ function Settings() {
           ? `Found: ${result.companyName || 'N/A'} | ${result.description || 'No description'}`
           : 'No data returned.',
       });
-    } catch {
-      setTestResult({ success: false, message: 'Connection failed.' });
+    } catch (err) {
+      setTestResult({ success: false, message: err.message || 'Connection failed.' });
     }
     setTesting(false);
   };

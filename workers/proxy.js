@@ -98,7 +98,7 @@ async function fetchPerplexity(domain, apiKey) {
       messages: [
         {
           role: 'user',
-          content: `Give me a brief company profile for ${domain}. Return ONLY valid JSON with these fields: {"industry": "", "employeeCount": "", "description": "", "headquarters": "", "founded": ""}. Keep description under 100 characters.`,
+          content: `Look up the company with the website domain "${domain}" and give me a factual profile about THAT specific company. Do NOT confuse it with similarly-named companies. Return ONLY valid JSON with these fields: {"companyName": "", "industry": "", "employeeCount": "", "description": "", "headquarters": "", "founded": ""}. Keep description under 150 characters. If you are not sure about a field, leave it as an empty string.`,
         },
       ],
       max_tokens: 300,
@@ -133,12 +133,15 @@ async function fetchApollo(domain, apiKey) {
   if (!org) return {};
 
   const results = {};
+  if (org.name) results.companyName = org.name;
   if (org.industry) results.industry = org.industry;
   if (org.estimated_num_employees) results.employeeCount = String(org.estimated_num_employees);
   if (org.short_description) results.description = org.short_description;
   if (org.linkedin_url) results.linkedinUrl = org.linkedin_url;
   if (org.founded_year) results.founded = String(org.founded_year);
   if (org.city) results.headquarters = `${org.city}, ${org.state || ''}`.trim();
+  if (org.total_funding) results.funding = String(org.total_funding);
+  if (org.latest_funding_round_type) results.fundingRound = org.latest_funding_round_type;
   return results;
 }
 

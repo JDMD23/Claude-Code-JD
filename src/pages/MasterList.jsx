@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader } from 'lucide-react';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, LayoutGrid, List, MapPin, TrendingUp, Plus, Globe, Zap, Loader, Trash2 } from 'lucide-react';
 import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, enrichCompany } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
@@ -299,7 +299,7 @@ function DossierCard({ company, isSelected, onSelect, onClick }) {
 }
 
 // Company Detail Modal
-function CompanyModal({ company, onClose, onEnrich }) {
+function CompanyModal({ company, onClose, onEnrich, onDelete }) {
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState(null);
 
@@ -320,8 +320,8 @@ function CompanyModal({ company, onClose, onEnrich }) {
       } else {
         setEnrichResult({ success: false, message: 'No data found for this domain.' });
       }
-    } catch {
-      setEnrichResult({ success: false, message: 'Enrichment failed.' });
+    } catch (err) {
+      setEnrichResult({ success: false, message: err.message || 'Enrichment failed.' });
     }
     setEnriching(false);
   };
@@ -422,6 +422,20 @@ function CompanyModal({ company, onClose, onEnrich }) {
             <InfoRow label="Prospect Score" value={company.prospectScore} />
             <InfoRow label="Prospect Status" value={company.prospectStatus} />
             <InfoRow label="Key Contacts" value={company.keyContacts} />
+          </div>
+
+          <div className="modal-danger-zone">
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={() => {
+                if (confirm(`Remove "${company.organizationName}" from Master List?`)) {
+                  onDelete(company.id);
+                  onClose();
+                }
+              }}
+            >
+              <Trash2 size={14} strokeWidth={1.5} /> Remove from Master List
+            </button>
           </div>
         </div>
       </div>
@@ -556,9 +570,11 @@ function MasterList() {
         description: enrichData.description || c.description,
         employeeCount: enrichData.employeeCount || c.employeeCount,
         industry: enrichData.industry || c.industry,
-        linkedinUrl: enrichData.linkedinUrl || c.linkedin,
+        linkedin: enrichData.linkedinUrl || c.linkedin,
         foundedDate: enrichData.founded || c.foundedDate,
         nycAddress: enrichData.headquarters || c.nycAddress,
+        totalFunding: enrichData.funding || c.totalFunding,
+        lastFundingType: enrichData.fundingRound || c.lastFundingType,
       };
     });
     saveMasterList(updated);
@@ -566,6 +582,18 @@ function MasterList() {
     // Refresh the selected company view
     const refreshed = updated.find(c => c.id === companyId);
     if (refreshed) setSelectedCompany(refreshed);
+  };
+
+  const handleDeleteCompany = (companyId) => {
+    const updated = companies.filter(c => c.id !== companyId);
+    saveMasterList(updated);
+    setCompanies(updated);
+    setSelectedCompany(null);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.delete(companyId);
+      return next;
+    });
   };
 
   const handleAddToCRM = (companiesToAdd, stage) => {
@@ -864,6 +892,7 @@ function MasterList() {
           company={selectedCompany}
           onClose={() => setSelectedCompany(null)}
           onEnrich={handleEnrichCompany}
+          onDelete={handleDeleteCompany}
         />
       )}
 
