@@ -460,6 +460,7 @@ export function getPipelineVelocity() {
 
 // ============ SETTINGS ============
 const DEFAULT_SETTINGS = {
+  proxyUrl: '',
   apolloApiKey: '',
   perplexityApiKey: '',
   autoEnrich: false,
@@ -478,10 +479,36 @@ export function saveSettings(settings) {
 
 // ============ COMPANY ENRICHMENT ============
 export async function enrichCompany(domain) {
+  const settings = getSettings();
   const results = {};
   const companyName = domain.split('.')[0];
 
-  // Try multiple sources in parallel for speed
+  // If proxy URL is configured with API keys, use Perplexity/Apollo via proxy
+  if (settings.proxyUrl && (settings.perplexityApiKey || settings.apolloApiKey)) {
+    try {
+      const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
+      const response = await fetch(`${proxyUrl}/enrich`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain,
+          perplexityApiKey: settings.perplexityApiKey || '',
+          apolloApiKey: settings.apolloApiKey || '',
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && !data.error) {
+          Object.assign(results, data);
+        }
+      }
+    } catch {
+      // Proxy failed, fall through to free APIs
+    }
+  }
+
+  // Always run free APIs in parallel (fill gaps not covered by proxy)
   const fetches = [];
 
   // 1. Clearbit Autocomplete — free, CORS-enabled
@@ -491,8 +518,7 @@ export async function enrichCompany(domain) {
       .then(data => {
         const match = data.find(c => c.domain === domain) || data[0];
         if (match) {
-          if (match.name) results.companyName = match.name;
-          if (match.domain) results.website = `https://${match.domain}`;
+          if (match.name && !results.companyName) results.companyName = match.name;
           if (match.logo) results.logo = match.logo;
         }
       })
@@ -500,45 +526,26 @@ export async function enrichCompany(domain) {
   );
 
   // 2. Wikipedia search API — free, CORS-enabled
-  fetches.push(
-    fetch(`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(companyName + ' company')}&limit=1&format=json&origin=*`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && data[1] && data[1][0]) {
-          const pageName = data[1][0];
-          // Now fetch the summary for this page
-          return fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageName)}`)
-            .then(r => r.ok ? r.json() : null)
-            .then(summary => {
-              if (summary?.extract && summary.type !== 'disambiguation') {
-                results.description = summary.extract.length > 200
-                  ? summary.extract.slice(0, 197) + '...'
-                  : summary.extract;
-              }
-            });
-        }
-      })
-      .catch(() => {})
-  );
-
-  // 3. DuckDuckGo Instant Answer API — free, CORS-enabled
-  fetches.push(
-    fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(domain)}&format=json&no_html=1&skip_disambig=1`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data) {
-          if (data.Abstract && !results.description) {
-            results.description = data.Abstract.length > 200
-              ? data.Abstract.slice(0, 197) + '...'
-              : data.Abstract;
+  if (!results.description) {
+    fetches.push(
+      fetch(`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(companyName + ' company')}&limit=1&format=json&origin=*`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data[1] && data[1][0]) {
+            return fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(data[1][0])}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(summary => {
+                if (summary?.extract && summary.type !== 'disambiguation' && !results.description) {
+                  results.description = summary.extract.length > 200
+                    ? summary.extract.slice(0, 197) + '...'
+                    : summary.extract;
+                }
+              });
           }
-          if (data.Heading && !results.companyName) {
-            results.companyName = data.Heading;
-          }
-        }
-      })
-      .catch(() => {})
-  );
+        })
+        .catch(() => {})
+    );
+  }
 
   await Promise.allSettled(fetches);
   return results;

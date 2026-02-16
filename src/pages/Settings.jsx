@@ -63,15 +63,32 @@ function Settings() {
         </div>
       </div>
 
-      {/* API Keys Section */}
+      {/* Proxy + API Keys Section */}
       <div className="card settings-section">
         <div className="settings-section-header">
           <Key size={18} strokeWidth={1.5} />
-          <h3>API Keys</h3>
+          <h3>API Proxy & Keys</h3>
         </div>
         <p className="settings-description">
-          Connect enrichment services to automatically pull company data. Keys are stored locally in your browser.
+          To use Perplexity/Apollo enrichment, you need a proxy server (see workers/proxy.js for setup instructions).
+          Keys are stored locally in your browser and sent only to your proxy.
         </p>
+
+        <div className="api-key-group">
+          <label className="api-key-label">
+            <span>Proxy URL</span>
+            <span className="api-key-hint">Your Cloudflare Worker URL (e.g. https://dealflow-proxy.you.workers.dev)</span>
+          </label>
+          <div className="api-key-input-wrap">
+            <input
+              type="text"
+              value={settings.proxyUrl}
+              onChange={(e) => handleChange('proxyUrl', e.target.value)}
+              placeholder="https://dealflow-proxy.your-name.workers.dev"
+              className="api-key-input"
+            />
+          </div>
+        </div>
 
         <div className="api-key-group">
           <label className="api-key-label">
