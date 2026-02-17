@@ -314,15 +314,27 @@ function DealPipeline() {
     })
   );
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    setDeals(getDeals());
+    async function loadData() {
+      try {
+        const data = await getDeals();
+        setDeals(data);
+      } catch (err) {
+        console.error('Failed to load deals:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
   }, []);
 
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
   };
 
-  const handleDragEnd = (event) => {
+  const handleDragEnd = async (event) => {
     const { active, over } = event;
     setActiveId(null);
 
@@ -349,29 +361,44 @@ function DealPipeline() {
     if (newStage) {
       const activeDeal = deals.find(d => d.id === activeId);
       if (activeDeal && activeDeal.stage !== newStage) {
-        const updated = updateDealStage(activeId, newStage);
-        setDeals(updated);
+        try {
+          await updateDealStage(activeId, newStage);
+          const updated = await getDeals();
+          setDeals(updated);
 
-        // Auto-create commission when deal moves to closed
-        if (newStage === 'closed') {
-          createCommissionFromDeal(activeId);
+          // Auto-create commission when deal moves to closed
+          if (newStage === 'closed') {
+            await createCommissionFromDeal(activeId);
+          }
+        } catch (err) {
+          console.error('Failed to update deal stage:', err);
         }
       }
     }
   };
 
-  const handleSaveDeal = (dealData) => {
-    const updated = saveDeal(dealData);
-    setDeals(updated);
-    setShowModal(false);
-    setEditingDeal(null);
+  const handleSaveDeal = async (dealData) => {
+    try {
+      await saveDeal(dealData);
+      const updated = await getDeals();
+      setDeals(updated);
+      setShowModal(false);
+      setEditingDeal(null);
+    } catch (err) {
+      console.error('Failed to save deal:', err);
+    }
   };
 
-  const handleDeleteDeal = (dealId) => {
-    const updated = deleteDeal(dealId);
-    setDeals(updated);
-    setShowModal(false);
-    setEditingDeal(null);
+  const handleDeleteDeal = async (dealId) => {
+    try {
+      await deleteDeal(dealId);
+      const updated = await getDeals();
+      setDeals(updated);
+      setShowModal(false);
+      setEditingDeal(null);
+    } catch (err) {
+      console.error('Failed to delete deal:', err);
+    }
   };
 
   const handleCardClick = (deal) => {
@@ -385,6 +412,8 @@ function DealPipeline() {
   };
 
   const activeDeal = deals.find(d => d.id === activeId);
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   return (
     <div className="page fade-in">
