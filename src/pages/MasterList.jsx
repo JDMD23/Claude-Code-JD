@@ -601,12 +601,12 @@ function MasterList() {
         return;
       }
 
-      // Auto-enrich if enabled
+      // Auto-enrich if enabled (fire-and-forget — handleRunAgent has its own error UI)
       const settings = await getSettings();
       if (settings.autoEnrich && settings.proxyUrl) {
         const newCompany = updated.find(c => getDomain(c.website) === domain);
         if (newCompany) {
-          handleRunAgent(newCompany);
+          handleRunAgent(newCompany).catch(() => {});
         }
       }
     } catch (err) {

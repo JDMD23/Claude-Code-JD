@@ -1,16 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
 import { Save, Download, Upload, Key, Shield, Zap, Wifi, WifiOff } from 'lucide-react';
-import { getSettings, saveSettings } from '../store/dataStore';
+import {
+  getSettings, saveSettings,
+  getDeals, getProspects, getMasterList, getCommissions,
+  getContacts, getFollowUps, getActivityLog, getClauses,
+} from '../store/dataStore';
 import './Pages.css';
 
-const EXPORT_KEYS = [
-  'dealflow_deals',
-  'dealflow_prospects',
-  'dealflow_master_list',
-  'dealflow_commissions',
-  'dealflow_contacts',
-  'dealflow_followups',
-  'dealflow_activity',
+const EXPORT_ENTITIES = [
+  { key: 'deals', fetch: getDeals },
+  { key: 'prospects', fetch: getProspects },
+  { key: 'master_list', fetch: getMasterList },
+  { key: 'commissions', fetch: getCommissions },
+  { key: 'contacts', fetch: getContacts },
+  { key: 'follow_ups', fetch: getFollowUps },
+  { key: 'activity_log', fetch: getActivityLog },
+  { key: 'clauses', fetch: getClauses },
 ];
 
 function Settings() {
@@ -88,25 +93,29 @@ function Settings() {
     }
   };
 
-  const handleExport = () => {
-    const data = { version: 1, exportedAt: new Date().toISOString() };
-    for (const key of EXPORT_KEYS) {
-      try {
-        const raw = localStorage.getItem(key);
-        data[key] = raw ? JSON.parse(raw) : [];
-      } catch {
-        data[key] = [];
+  const handleExport = async () => {
+    try {
+      const data = { version: 2, exportedAt: new Date().toISOString() };
+      for (const entity of EXPORT_ENTITIES) {
+        try {
+          data[entity.key] = await entity.fetch();
+        } catch {
+          data[entity.key] = [];
+        }
       }
-    }
 
-    const dateStr = new Date().toISOString().split('T')[0];
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `dealflow-backup-${dateStr}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const dateStr = new Date().toISOString().split('T')[0];
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dealflow-backup-${dateStr}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Export failed: ' + err.message);
+    }
   };
 
   const handleImport = async (e) => {
@@ -122,18 +131,7 @@ function Settings() {
         return;
       }
 
-      if (!confirm('This will replace ALL current data (except your API settings). Are you sure?')) {
-        return;
-      }
-
-      for (const key of EXPORT_KEYS) {
-        if (data[key] !== undefined) {
-          localStorage.setItem(key, JSON.stringify(data[key]));
-        }
-      }
-
-      alert('Data imported successfully. Reloading...');
-      window.location.reload();
+      alert('Import from backup files is not yet supported with the cloud database. Use the Supabase dashboard to restore data.');
     } catch (err) {
       alert(`Import failed: ${err.message}`);
     }
