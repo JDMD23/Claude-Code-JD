@@ -21,8 +21,8 @@ function sseResponse(readable) {
   });
 }
 
-function sendSSE(writer, encoder, data) {
-  writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+async function sendSSE(writer, encoder, data) {
+  await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 }
 
 // ============ AUTH ============
@@ -675,8 +675,8 @@ async function handleAgent(request, env) {
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
 
-  const progress = (step, message) => {
-    sendSSE(writer, encoder, { type: 'progress', step, message });
+  const progress = async (step, message) => {
+    await sendSSE(writer, encoder, { type: 'progress', step, message });
   };
 
   // Run agent pipeline asynchronously
@@ -718,7 +718,7 @@ async function handleAgent(request, env) {
       };
 
       // STEP 1: Perplexity company overview + Apollo contacts
-      progress(1, 'Researching company overview and contacts...');
+      await progress(1, 'Researching company overview and contacts...');
 
       const [perplexityData, apolloData] = await Promise.all([
         keys.perplexity ? fetchPerplexity(keys.perplexity, companyName, domain, csvData) : {},
@@ -770,7 +770,7 @@ async function handleAgent(request, env) {
       dossier.decisionMakers = apolloData.contacts || [];
 
       // STEP 2: Founder due diligence (Prompt 2C.4)
-      progress(2, 'Researching founders...');
+      await progress(2, 'Researching founders...');
 
       // Parse CSV founders first
       if (csvData.founders) {
@@ -814,7 +814,7 @@ async function handleAgent(request, env) {
       }
 
       // STEP 3: NYC address research
-      progress(3, 'Searching for NYC office address...');
+      await progress(3, 'Searching for NYC office address...');
 
       if (keys.exa && !dossier.nycAddress) {
         const addressResults = await fetchExaAddress(keys.exa, companyName, domain);
@@ -836,7 +836,7 @@ async function handleAgent(request, env) {
       }
 
       // STEP 4: News search
-      progress(4, 'Searching for recent news...');
+      await progress(4, 'Searching for recent news...');
 
       if (keys.exa) {
         const newsResults = await fetchExaNews(keys.exa, companyName, domain);
@@ -855,7 +855,7 @@ async function handleAgent(request, env) {
       }
 
       // STEP 5: Hiring intelligence (Firecrawl scrapes → Perplexity analyzes)
-      progress(5, 'Analyzing hiring activity...');
+      await progress(5, 'Analyzing hiring activity...');
 
       // Firecrawl finds and scrapes the ONE authoritative careers source
       const careersPage = await findAndScrapeCareersPage(keys.firecrawl, companyName, domain);
@@ -881,11 +881,11 @@ async function handleAgent(request, env) {
       }
 
       // STEP 6: Generate outreach email
-      progress(6, 'Generating outreach email...');
+      await progress(6, 'Generating outreach email...');
       dossier.outreachEmail = await generateOutreachEmail(keys.perplexity, companyName, dossier, csvData);
 
       // STEP 7: Scorecard (Prompt 2C.5)
-      progress(7, 'Calculating scores...');
+      await progress(7, 'Calculating scores...');
 
       // Use CSV investors first for scoring
       const investorSource = csvData.topInvestors || csvData.leadInvestors ||
@@ -898,12 +898,12 @@ async function handleAgent(request, env) {
       dossier.fundingScore = calculateFundingScore(fundingSource);
 
       // Send final result
-      sendSSE(writer, encoder, { type: 'result', data: dossier });
-      sendSSE(writer, encoder, '[DONE]');
+      await sendSSE(writer, encoder, { type: 'result', data: dossier });
+      await sendSSE(writer, encoder, '[DONE]');
     } catch (err) {
-      sendSSE(writer, encoder, { type: 'error', message: err.message });
+      await sendSSE(writer, encoder, { type: 'error', message: err.message });
     } finally {
-      writer.close();
+      await writer.close();
     }
   })();
 

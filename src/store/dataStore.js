@@ -546,20 +546,29 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
     fundingRounds: companyData.fundingRounds,
   };
 
-  const res = await fetch(`${settings.proxyUrl}/agent`, {
-    method: 'POST',
-    headers: getProxyHeaders(),
-    body: JSON.stringify({
-      domain,
-      csvData,
-      perplexityApiKey: settings.perplexityApiKey || '',
-      apolloApiKey: settings.apolloApiKey || '',
-      exaApiKey: settings.exaApiKey || '',
-      firecrawlApiKey: settings.firecrawlApiKey || '',
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(`${settings.proxyUrl}/agent`, {
+      method: 'POST',
+      headers: getProxyHeaders(),
+      body: JSON.stringify({
+        domain,
+        csvData,
+        perplexityApiKey: settings.perplexityApiKey || '',
+        apolloApiKey: settings.apolloApiKey || '',
+        exaApiKey: settings.exaApiKey || '',
+        firecrawlApiKey: settings.firecrawlApiKey || '',
+      }),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Cannot reach proxy at ${settings.proxyUrl}. Check that the worker is deployed and the URL is correct.`);
+  }
 
-  if (!res.ok) throw new Error(`Agent failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch {}
+    throw new Error(`Agent failed (${res.status})${detail ? ': ' + detail : ''}`);
+  }
 
   // Handle streaming progress
   const reader = res.body?.getReader();
@@ -588,8 +597,11 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
           onProgress(parsed);
         } else if (parsed.type === 'result') {
           finalResult = parsed.data;
+        } else if (parsed.type === 'error') {
+          throw new Error(parsed.message || 'Agent pipeline error');
         }
-      } catch {
+      } catch (parseErr) {
+        if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
         // skip unparseable lines
       }
     }
