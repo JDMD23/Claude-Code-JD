@@ -9,7 +9,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Building2
+  Building2,
+  Settings
 } from 'lucide-react';
 import { useState } from 'react';
 import './Sidebar.css';
@@ -31,7 +32,7 @@ function Sidebar() {
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="logo">
-          <Building2 size={28} className="logo-icon" />
+          <Building2 size={28} strokeWidth={1.5} className="logo-icon" />
           {!collapsed && <span className="logo-text">DealFlow</span>}
         </div>
         <button
@@ -39,7 +40,7 @@ function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {collapsed ? <ChevronRight size={18} strokeWidth={1.5} /> : <ChevronLeft size={18} strokeWidth={1.5} />}
         </button>
       </div>
 
@@ -52,7 +53,7 @@ function Sidebar() {
               `nav-item ${isActive ? 'active' : ''}`
             }
           >
-            <item.icon size={20} className="nav-icon" />
+            <item.icon size={20} strokeWidth={1.5} className="nav-icon" />
             {!collapsed && <span className="nav-label">{item.label}</span>}
           </NavLink>
         ))}
