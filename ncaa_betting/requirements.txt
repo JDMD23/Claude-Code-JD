@@ -1,3 +1,0 @@
-pandas>=2.0
-tabulate>=0.9
-colorama>=0.4
