@@ -11,9 +11,9 @@ function ChatPanel({ isOpen, onClose, contextType = 'general', contextData = nul
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Check if API key is configured
+  // Check if proxy is configured
   const settings = getSettings();
-  const hasApiKey = !!settings.anthropicApiKey;
+  const hasProxy = !!settings.proxyUrl;
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -22,10 +22,10 @@ function ChatPanel({ isOpen, onClose, contextType = 'general', contextData = nul
 
   // Focus input when panel opens
   useEffect(() => {
-    if (isOpen && hasApiKey) {
+    if (isOpen && hasProxy) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [isOpen, hasApiKey]);
+  }, [isOpen, hasProxy]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -44,7 +44,7 @@ function ChatPanel({ isOpen, onClose, contextType = 'general', contextData = nul
       const allMessages = [...messages, userMessage];
       const response = await sendChatMessage(allMessages, context);
 
-      setMessages(prev => [...prev, { role: 'assistant', content: response.message }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: response.content }]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -124,11 +124,11 @@ function ChatPanel({ isOpen, onClose, contextType = 'general', contextData = nul
           </div>
         </div>
 
-        {!hasApiKey ? (
+        {!hasProxy ? (
           <div className="chat-no-api-key">
             <MessageSquare size={32} strokeWidth={1.5} />
-            <h4>Claude API Key Required</h4>
-            <p>Add your Anthropic API key in Settings to use the AI assistant.</p>
+            <h4>Proxy URL Required</h4>
+            <p>Configure your Proxy URL in Settings to use the AI assistant.</p>
           </div>
         ) : (
           <>

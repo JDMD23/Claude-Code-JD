@@ -2,22 +2,33 @@
 // Routes: /enrich, /agent, /chat
 // APIs: Perplexity, Apollo, Exa, Firecrawl
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  // Production origin will be added when deployment domain is confirmed
+];
 
-function corsResponse(body, status = 200) {
+function getCorsHeaders(request) {
+  const origin = request.headers.get('Origin') || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+}
+
+function corsResponse(request, body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    headers: { ...getCorsHeaders(request), 'Content-Type': 'application/json' },
   });
 }
 
-function sseResponse(readable) {
+function sseResponse(request, readable) {
   return new Response(readable, {
-    headers: { ...CORS_HEADERS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+    headers: { ...getCorsHeaders(request), 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   });
 }
 
@@ -645,7 +656,7 @@ Return ONLY JSON: {"subject": "under 8 words", "body": "the email body"}`;
 async function handleEnrich(request, env) {
   const body = await request.json();
   const { domain } = body;
-  if (!domain) return corsResponse({ error: 'domain required' }, 400);
+  if (!domain) return corsResponse(request, { error: 'domain required' }, 400);
 
   const keys = getApiKeys(body, env);
   const results = {};
@@ -658,13 +669,13 @@ async function handleEnrich(request, env) {
     results.apollo = await fetchApollo(keys.apollo, domain);
   }
 
-  return corsResponse(results);
+  return corsResponse(request, results);
 }
 
 async function handleAgent(request, env) {
   const body = await request.json();
   const { domain, csvData = {} } = body;
-  if (!domain) return corsResponse({ error: 'domain required' }, 400);
+  if (!domain) return corsResponse(request, { error: 'domain required' }, 400);
 
   const keys = getApiKeys(body, env);
 
@@ -907,7 +918,7 @@ async function handleAgent(request, env) {
     }
   })();
 
-  return sseResponse(readable);
+  return sseResponse(request, readable);
 }
 
 function classifyNewsType(text) {
@@ -926,7 +937,7 @@ async function handleChat(request, env) {
   const keys = getApiKeys(body, env);
 
   if (!keys.perplexity) {
-    return corsResponse({ error: 'No Perplexity API key available' }, 500);
+    return corsResponse(request, { error: 'No Perplexity API key available' }, 500);
   }
 
   const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -949,11 +960,11 @@ async function handleChat(request, env) {
   });
 
   if (!res.ok) {
-    return corsResponse({ error: `Perplexity error: ${res.status}` }, res.status);
+    return corsResponse(request, { error: `Perplexity error: ${res.status}` }, res.status);
   }
 
   const data = await res.json();
-  return corsResponse({
+  return corsResponse(request, {
     content: data.choices?.[0]?.message?.content || '',
     citations: data.citations || [],
   });
@@ -965,12 +976,12 @@ export default {
   async fetch(request, env) {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS_HEADERS });
+      return new Response(null, { headers: getCorsHeaders(request) });
     }
 
     // Auth check (Prompt 4B)
     if (!checkAuth(request, env)) {
-      return corsResponse({ error: 'Unauthorized' }, 401);
+      return corsResponse(request, { error: 'Unauthorized' }, 401);
     }
 
     const url = new URL(request.url);
@@ -991,12 +1002,12 @@ export default {
 
       // Health check
       if (path === '/' || path === '/health') {
-        return corsResponse({ status: 'ok', routes: ['/enrich', '/agent', '/chat'] });
+        return corsResponse(request, { status: 'ok', routes: ['/enrich', '/agent', '/chat'] });
       }
 
-      return corsResponse({ error: 'Not found' }, 404);
+      return corsResponse(request, { error: 'Not found' }, 404);
     } catch (err) {
-      return corsResponse({ error: err.message }, 500);
+      return corsResponse(request, { error: err.message }, 500);
     }
   },
 };
