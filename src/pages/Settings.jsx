@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Save, Download, Upload, Key, Shield, Zap } from 'lucide-react';
+import { Save, Download, Upload, Key, Shield, Zap, Wifi, WifiOff } from 'lucide-react';
 import { getSettings, saveSettings } from '../store/dataStore';
 import './Pages.css';
 
@@ -16,7 +16,36 @@ const EXPORT_KEYS = [
 function Settings() {
   const [settings, setSettings] = useState(() => getSettings());
   const [saved, setSaved] = useState(false);
+  const [connStatus, setConnStatus] = useState(null); // null | 'testing' | 'ok' | 'error'
+  const [connDetail, setConnDetail] = useState('');
   const importRef = useRef(null);
+
+  const testConnection = async () => {
+    if (!settings.proxyUrl) {
+      setConnStatus('error');
+      setConnDetail('No Proxy URL entered.');
+      return;
+    }
+    setConnStatus('testing');
+    setConnDetail('');
+    try {
+      const url = settings.proxyUrl.replace(/\/+$/, '');
+      const headers = { 'Content-Type': 'application/json' };
+      if (settings.proxySecret) headers['Authorization'] = `Bearer ${settings.proxySecret}`;
+      const res = await fetch(`${url}/health`, { method: 'GET', headers });
+      if (res.ok) {
+        const data = await res.json();
+        setConnStatus('ok');
+        setConnDetail(`Connected! Routes: ${(data.routes || []).join(', ')}`);
+      } else {
+        setConnStatus('error');
+        setConnDetail(`Worker responded with ${res.status}. Check the URL and redeploy if needed.`);
+      }
+    } catch (err) {
+      setConnStatus('error');
+      setConnDetail(`Cannot reach ${settings.proxyUrl}. Check the URL or make sure the worker is deployed.`);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -120,6 +149,24 @@ function Settings() {
               placeholder="Bearer token for proxy auth"
             />
           </div>
+          <button
+            className="btn btn-secondary"
+            onClick={testConnection}
+            disabled={connStatus === 'testing'}
+            style={{ marginTop: '0.5rem' }}
+          >
+            {connStatus === 'testing' ? <Wifi size={18} /> : connStatus === 'ok' ? <Wifi size={18} /> : <WifiOff size={18} />}
+            {connStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+          </button>
+          {connStatus && connStatus !== 'testing' && (
+            <p style={{
+              fontSize: '0.85rem',
+              marginTop: '0.5rem',
+              color: connStatus === 'ok' ? '#22c55e' : '#ef4444',
+            }}>
+              {connDetail}
+            </p>
+          )}
         </div>
 
         <div className="card settings-section">
