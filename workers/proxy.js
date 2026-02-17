@@ -312,14 +312,181 @@ async function scrapeWithFirecrawl(apiKey, url) {
   }
 }
 
-async function scrapeCareersPage(apiKey, domain) {
-  const commonPaths = ['/careers', '/jobs', '/join-us', '/work-with-us'];
-  for (const path of commonPaths) {
-    const content = await scrapeWithFirecrawl(apiKey, `https://${domain}${path}`);
-    if (content && content.length > 100) {
-      return { url: `https://${domain}${path}`, content };
+async function findAndScrapeCareersPage(firecrawlKey, companyName, domain) {
+  if (!firecrawlKey) return null;
+
+  // Phase 1: Try direct paths on the company domain
+  const directPaths = ['/careers', '/jobs', '/join-us', '/open-positions', '/work-with-us'];
+  for (const path of directPaths) {
+    const content = await scrapeWithFirecrawl(firecrawlKey, `https://${domain}${path}`);
+    if (content && content.length > 300) {
+      return { url: `https://${domain}${path}`, content, source: 'company-site' };
     }
   }
+
+  // Phase 2: Try major ATS platforms where VC-backed startups list jobs
+  // Use the domain slug (e.g., "keye" from "keye.com") as the identifier
+  const slug = domain.split('.')[0].toLowerCase();
+  // Also try company name slug (e.g., "keye" from "Keye")
+  const nameSlug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const atsCandidates = [
+    // Greenhouse (most common for VC-backed startups)
+    `https://boards.greenhouse.io/${slug}`,
+    `https://boards.greenhouse.io/${nameSlug}`,
+    // Lever
+    `https://jobs.lever.co/${slug}`,
+    `https://jobs.lever.co/${nameSlug}`,
+    // Ashby (growing fast in startup space)
+    `https://jobs.ashbyhq.com/${slug}`,
+    `https://jobs.ashbyhq.com/${nameSlug}`,
+    // Workable
+    `https://apply.workable.com/${slug}`,
+    // Rippling
+    `https://www.rippling.com/careers/${slug}`,
+    // BambooHR
+    `https://${slug}.bamboohr.com/careers`,
+  ];
+
+  // Deduplicate candidates (slug and nameSlug might be the same)
+  const seen = new Set();
+  const uniqueCandidates = atsCandidates.filter(url => {
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+
+  for (const atsUrl of uniqueCandidates) {
+    const content = await scrapeWithFirecrawl(firecrawlKey, atsUrl);
+    // ATS pages with real listings are usually substantial
+    if (content && content.length > 300) {
+      return { url: atsUrl, content, source: 'ats-platform' };
+    }
+  }
+
+  return null;
+}
+
+async function analyzeHiringFromContent(perplexityKey, companyName, domain, careersPage) {
+  if (!perplexityKey) {
+    // No Perplexity key — return what we can from scrape alone
+    if (careersPage) {
+      return {
+        careersUrl: careersPage.url,
+        summary: `Careers page found at ${careersPage.url}. Install Perplexity API key for detailed analysis.`,
+      };
+    }
+    return null;
+  }
+
+  // If Firecrawl found a page, send the content to Perplexity for analysis
+  if (careersPage && careersPage.content) {
+    // Truncate content to avoid token limits — first 6000 chars is enough for job listings
+    const truncated = careersPage.content.slice(0, 6000);
+
+    const prompt = `Below is the scraped content from ${companyName}'s careers page (${careersPage.url}).
+
+This is the ONLY source. Do not search the web or check other job sites. Only analyze what's in this content. Count carefully — each distinct job title listed counts as one position.
+
+---
+${truncated}
+---
+
+Based ONLY on the content above, answer:
+1. How many distinct job positions are listed? Count each unique job title once.
+2. How many of those specify New York, NYC, Manhattan, or Brooklyn as the location?
+3. How many are listed as remote?
+4. How many are listed as hybrid?
+5. What departments are represented? (engineering, sales, design, ops, etc.)
+6. Is there any mention of office expansion, new office space, or workplace growth?
+
+Return ONLY valid JSON:
+{
+  "totalJobs": <exact number>,
+  "nycJobs": <exact number>,
+  "remoteJobs": <exact number>,
+  "hybridJobs": <exact number>,
+  "departments": ["dept1", "dept2"],
+  "officeExpansionSignals": "<relevant quote or empty string>",
+  "summary": "<1-2 sentence summary useful for a commercial real estate broker>"
+}`;
+
+    try {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${perplexityKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          parsed.careersUrl = careersPage.url;
+          return parsed;
+        }
+      }
+    } catch {
+      // Fall through to fallback
+    }
+  }
+
+  // Fallback: No scraped content available. Ask Perplexity to find careers info.
+  // IMPORTANT: Tell it to find the primary careers page only, not aggregators.
+  if (!careersPage) {
+    const prompt = `I need hiring information for ${companyName} (${domain}) for a NYC commercial real estate broker.
+
+Find their PRIMARY careers page (their own website or their ATS platform like Greenhouse, Lever, or Ashby). Do NOT count jobs from LinkedIn, Indeed, Glassdoor, or other aggregators — those duplicate listings.
+
+Answer based on their primary careers source only:
+1. What is their careers page URL?
+2. How many open positions are currently listed?
+3. How many are in New York City?
+4. What departments are hiring?
+5. Any signals about office expansion or new space?
+
+Return ONLY valid JSON:
+{
+  "totalJobs": <number or null>,
+  "nycJobs": <number or null>,
+  "remoteJobs": <number or null>,
+  "hybridJobs": <number or null>,
+  "departments": ["dept1", "dept2"],
+  "officeExpansionSignals": "<relevant info or empty string>",
+  "careersUrl": "<primary careers page URL>",
+  "summary": "<1-2 sentence summary for a broker>"
+}`;
+
+    try {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${perplexityKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+      }
+    } catch {
+      // continue
+    }
+  }
+
   return null;
 }
 
@@ -687,19 +854,30 @@ async function handleAgent(request, env) {
         if (fundingNews) dossier.recentNews = fundingNews.title;
       }
 
-      // STEP 5: Hiring intelligence (Firecrawl careers page)
+      // STEP 5: Hiring intelligence (Firecrawl scrapes → Perplexity analyzes)
       progress(5, 'Analyzing hiring activity...');
 
-      if (keys.firecrawl) {
-        const careers = await scrapeCareersPage(keys.firecrawl, domain);
-        if (careers) {
-          dossier.careersUrl = careers.url;
-          // Parse job listings from careers page
-          const content = careers.content;
-          const nycJobs = (content.match(/new york|nyc|manhattan/gi) || []).length;
-          const totalJobs = (content.match(/\bjob\b|\bposition\b|\brole\b|\bopening\b/gi) || []).length;
-          dossier.hiringIntel = `Found careers page with ~${totalJobs} mentions of open roles, ${nycJobs} NYC-related.`;
-        }
+      // Firecrawl finds and scrapes the ONE authoritative careers source
+      const careersPage = await findAndScrapeCareersPage(keys.firecrawl, companyName, domain);
+
+      // Perplexity analyzes the scraped content (or searches as fallback)
+      const hiringData = await analyzeHiringFromContent(keys.perplexity, companyName, domain, careersPage);
+
+      if (hiringData) {
+        dossier.careersUrl = hiringData.careersUrl || careersPage?.url || '';
+        dossier.hiringIntel = hiringData.summary || '';
+        dossier.hiringData = {
+          totalJobs: hiringData.totalJobs,
+          nycJobs: hiringData.nycJobs,
+          remoteJobs: hiringData.remoteJobs,
+          hybridJobs: hiringData.hybridJobs,
+          departments: hiringData.departments || [],
+          officeExpansionSignals: hiringData.officeExpansionSignals || '',
+        };
+      } else if (careersPage) {
+        // Firecrawl found a page but analysis failed
+        dossier.careersUrl = careersPage.url;
+        dossier.hiringIntel = `Careers page found at ${careersPage.url}. Analysis unavailable.`;
       }
 
       // STEP 6: Generate outreach email
