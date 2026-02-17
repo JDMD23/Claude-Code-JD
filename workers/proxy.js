@@ -503,18 +503,48 @@ Return ONLY valid JSON:
 
 // Prompt 5E: Use Perplexity instead of Firecrawl for LinkedIn research
 async function generateFounderInsights(perplexityKey, founder) {
-  const prompt = `Research this person for a commercial real estate broker. Search for ${founder.name} on LinkedIn and analyze their career history.
+  const prompt = `Research this person thoroughly. I need their complete professional background for a commercial real estate broker evaluating their company.
 
 Name: ${founder.name}
 ${founder.title ? `Title: ${founder.title}` : ''}
 ${founder.linkedin ? `LinkedIn: ${founder.linkedin}` : ''}
 
-Return JSON:
+Research their career history and return ONLY valid JSON with these fields:
+
 {
-  "background": "2-3 sentence summary of career and expertise",
-  "previousCompanies": ["company1", "company2"],
-  "relevantInsights": "any real estate, expansion, or office-related insights"
-}`;
+  "tldr": "1-2 sentence summary of who they are and why they matter",
+  "careerHistory": [
+    {"company": "Company Name", "title": "Their Title", "years": "2020-2023", "notable": "brief note if notable company or role"}
+  ],
+  "education": [
+    {"school": "University Name", "degree": "Degree Type and Field", "year": "2015"}
+  ],
+  "previousStartups": [
+    {"name": "Startup Name", "role": "Founder/CEO", "outcome": "Acquired by X for $YM / Shut down / Still operating", "exitAmount": null}
+  ],
+  "bigTechExperience": [
+    {"company": "Google", "title": "Staff Engineer", "years": "2018-2022"}
+  ],
+  "talkingPoints": [
+    "Recent insight or activity worth mentioning in conversation"
+  ],
+  "pedigreeSignals": {
+    "hasExitOver50M": false,
+    "hasIPO": false,
+    "hasFAANGSenior": false,
+    "hasPriorStartup": false,
+    "bigTechCompanies": [],
+    "exitDetails": ""
+  }
+}
+
+For bigTechExperience, only include roles at: Google, Meta/Facebook, Apple, Amazon, Microsoft, Netflix, Stripe, OpenAI, Uber, Airbnb, Databricks, Snowflake, Coinbase, or similar tier companies.
+
+For pedigreeSignals.hasFAANGSenior, this means Director level, Staff Engineer level, or above at the companies listed above.
+
+For previousStartups, try to find exit amounts if they were acquisitions. If unknown, set exitAmount to null.
+
+Be accurate. If you cannot find information, use null or empty arrays. Do not fabricate career history.`;
 
   try {
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -604,6 +634,60 @@ function calculateFundingScore(fundingStr) {
   if (amount >= 5_000_000) return 2;  // $5M-$9.9M solid seed, at or above median
   if (amount >= 3_000_000) return 1;  // $3M-$4.9M standard seed, enough runway
   return 0;                           // < $3M small seed / pre-seed
+}
+
+function calculateFounderPedigreeScore(founderInsights) {
+  // 3 = Serial founder with major exit (>$50M or IPO)
+  // 2 = Senior FAANG/Big Tech alumni (Director/Staff+)
+  // 1 = Second-time founder (prior startup, no major exit)
+  // 0 = First-time founder
+
+  if (!founderInsights || !founderInsights.pedigreeSignals) {
+    // Try to infer from career data if pedigreeSignals is missing
+    if (founderInsights?.previousStartups?.length > 0) {
+      const hasExit = founderInsights.previousStartups.some(s =>
+        s.outcome && /acqui|sold|ipo|public|exit/i.test(s.outcome)
+      );
+      if (hasExit) {
+        const bigExit = founderInsights.previousStartups.some(s =>
+          s.exitAmount && parseFundingAmount(String(s.exitAmount)) >= 50_000_000
+        );
+        return bigExit ? 3 : 1;
+      }
+      return 1;
+    }
+    if (founderInsights?.bigTechExperience?.length > 0) {
+      const isSenior = founderInsights.bigTechExperience.some(exp =>
+        /director|staff|principal|vp|head of|chief/i.test(exp.title || '')
+      );
+      return isSenior ? 2 : 0;
+    }
+    return 0;
+  }
+
+  const signals = founderInsights.pedigreeSignals;
+  if (signals.hasExitOver50M || signals.hasIPO) return 3;
+  if (signals.hasFAANGSenior) return 2;
+  if (signals.hasPriorStartup) return 1;
+  return 0;
+}
+
+function getPedigreeReason(score, insights) {
+  if (score === 3) {
+    const exit = insights?.previousStartups?.find(s =>
+      s.outcome && /acqui|sold|ipo|public|exit/i.test(s.outcome)
+    );
+    return exit ? `Founded ${exit.name} (${exit.outcome})` : 'Serial founder with major exit';
+  }
+  if (score === 2) {
+    const exp = insights?.bigTechExperience?.[0];
+    return exp ? `${exp.title} at ${exp.company} (${exp.years})` : 'Senior Big Tech alumni';
+  }
+  if (score === 1) {
+    const startup = insights?.previousStartups?.[0];
+    return startup ? `Previously founded ${startup.name}` : 'Second-time founder';
+  }
+  return 'First-time founder';
 }
 
 async function generateOutreachEmail(perplexityKey, companyName, dossier, csvData = {}) {
