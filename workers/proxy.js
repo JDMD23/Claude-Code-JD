@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:4173',
-  // Production origin will be added when deployment domain is confirmed
+  'https://normancre.vercel.app',
 ];
 
 function getCorsHeaders(request) {
