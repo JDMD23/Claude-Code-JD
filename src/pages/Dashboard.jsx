@@ -24,21 +24,33 @@ function timeAgo(dateStr) {
 
 function Dashboard() {
   const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const loadStats = useCallback(() => {
-    setStats(getDashboardStats());
+  const loadStats = useCallback(async () => {
+    try {
+      const data = await getDashboardStats();
+      setStats(data);
+    } catch (err) {
+      console.error('Failed to load dashboard stats:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     loadStats();
   }, [loadStats]);
 
-  function handleComplete(id) {
-    completeFollowUp(id);
-    loadStats();
+  async function handleComplete(id) {
+    try {
+      await completeFollowUp(id);
+      await loadStats();
+    } catch (err) {
+      console.error('Failed to complete follow-up:', err);
+    }
   }
 
-  if (!stats) return null;
+  if (loading || !stats) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   const followUpsDue = stats.followUps.overdue + stats.followUps.today;
   const priorities = [

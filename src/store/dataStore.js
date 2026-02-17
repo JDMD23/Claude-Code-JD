@@ -1,46 +1,11 @@
-// DealFlow Data Store - Persists to localStorage
-import { v4 as uuidv4 } from 'uuid';
+// DealFlow Data Store - Supabase backend
+import { supabase } from '../services/supabaseClient';
 
-const STORAGE_KEYS = {
-  DEALS: 'dealflow_deals',
-  PROSPECTS: 'dealflow_prospects',
-  MASTER_LIST: 'dealflow_master_list',
-  COMMISSIONS: 'dealflow_commissions',
-  CONTACTS: 'dealflow_contacts',
-  FOLLOWUPS: 'dealflow_followups',
-  ACTIVITY_LOG: 'dealflow_activity',
-  SETTINGS: 'dealflow_settings',
-  CLAUSES: 'dealflow_clauses',
-};
-
-const DEFAULT_SETTINGS = {
-  proxyUrl: '',
-  proxySecret: '',
-  perplexityApiKey: '',
-  apolloApiKey: '',
-  exaApiKey: '',
-  firecrawlApiKey: '',
-  autoEnrich: false,
-};
-
-// Helper to load from localStorage
-function loadData(key, defaultValue = []) {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultValue;
-  } catch (e) {
-    console.error(`Error loading ${key}:`, e);
-    return defaultValue;
-  }
-}
-
-// Helper to save to localStorage
-function saveData(key, data) {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error(`Error saving ${key}:`, e);
-  }
+// Helper to get current user ID
+async function getUserId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  return user.id;
 }
 
 // Deal Pipeline Stages
@@ -70,100 +35,206 @@ export const COMMISSION_STATUSES = [
   { id: 'paid', name: 'Paid' },
 ];
 
+const DEFAULT_SETTINGS = {
+  proxyUrl: '',
+  proxySecret: '',
+  perplexityApiKey: '',
+  apolloApiKey: '',
+  exaApiKey: '',
+  firecrawlApiKey: '',
+  autoEnrich: false,
+};
+
 // ============ SETTINGS ============
-export function getSettings() {
-  const stored = loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
-  // Merge with defaults so new keys (e.g. exaApiKey) are always present
-  const merged = { ...DEFAULT_SETTINGS, ...stored };
-  // Migrate: remove dead tavilyApiKey if leftover
-  delete merged.tavilyApiKey;
-  return merged;
+export async function getSettings() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('settings')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !data) return { ...DEFAULT_SETTINGS };
+  const { user_id, id, created_at, updated_at, ...rest } = data;
+  return { ...DEFAULT_SETTINGS, ...rest };
 }
 
-export function saveSettings(settings) {
+export async function saveSettings(settings) {
+  const userId = await getUserId();
   const merged = { ...DEFAULT_SETTINGS, ...settings };
-  saveData(STORAGE_KEYS.SETTINGS, merged);
+
+  const payload = {
+    user_id: userId,
+    ...merged,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('settings')
+    .upsert(payload, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
   return merged;
 }
 
 // ============ DEALS ============
-export function getDeals() {
-  return loadData(STORAGE_KEYS.DEALS, []);
+export async function getDeals() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('deals')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(d => ({
+    ...d,
+    stageHistory: d.stage_history || d.stageHistory || [],
+    createdAt: d.created_at || d.createdAt,
+    updatedAt: d.updated_at || d.updatedAt,
+    clientName: d.client_name || d.clientName,
+    dealNickname: d.deal_nickname || d.dealNickname,
+    contactName: d.contact_name || d.contactName,
+    contactEmail: d.contact_email || d.contactEmail,
+    contactPhone: d.contact_phone || d.contactPhone,
+    squareFootage: d.square_footage || d.squareFootage,
+    targetBudget: d.target_budget || d.targetBudget,
+    targetDate: d.target_date || d.targetDate,
+  }));
 }
 
-export function saveDeal(deal) {
-  const deals = getDeals();
+export async function saveDeal(deal) {
+  const userId = await getUserId();
   const now = new Date().toISOString();
+
+  const dbRecord = {
+    user_id: userId,
+    client_name: deal.clientName || deal.client_name || '',
+    deal_nickname: deal.dealNickname || deal.deal_nickname || '',
+    contact_name: deal.contactName || deal.contact_name || '',
+    contact_email: deal.contactEmail || deal.contact_email || '',
+    contact_phone: deal.contactPhone || deal.contact_phone || '',
+    square_footage: deal.squareFootage || deal.square_footage || '',
+    target_budget: deal.targetBudget || deal.target_budget || '',
+    target_date: deal.targetDate || deal.target_date || null,
+    notes: deal.notes || '',
+    stage: deal.stage || 'kickoff',
+    updated_at: now,
+  };
 
   if (deal.id) {
     // Update existing deal
-    const index = deals.findIndex(d => d.id === deal.id);
-    if (index !== -1) {
-      deals[index] = { ...deals[index], ...deal, updatedAt: now };
-    }
+    dbRecord.stage_history = deal.stageHistory || deal.stage_history || [];
+    const { data, error } = await supabase
+      .from('deals')
+      .update(dbRecord)
+      .eq('id', deal.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   } else {
     // Create new deal
-    const newDeal = {
-      ...deal,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
-      stageHistory: [{ stage: deal.stage || 'kickoff', date: now }],
-    };
-    deals.push(newDeal);
-    logActivity('deal_created', `New deal created: ${deal.clientName}`);
+    dbRecord.stage_history = [{ stage: deal.stage || 'kickoff', date: now }];
+    dbRecord.created_at = now;
+    const { data, error } = await supabase
+      .from('deals')
+      .insert(dbRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    await logActivity('deal_created', `New deal created: ${dbRecord.client_name}`);
+    return data;
   }
-
-  saveData(STORAGE_KEYS.DEALS, deals);
-  return deals;
 }
 
-export function updateDealStage(dealId, newStage) {
-  const deals = getDeals();
-  const deal = deals.find(d => d.id === dealId);
-  if (deal) {
-    const now = new Date().toISOString();
-    deal.stage = newStage;
-    deal.stageHistory = deal.stageHistory || [];
-    deal.stageHistory.push({ stage: newStage, date: now });
-    deal.updatedAt = now;
-    saveData(STORAGE_KEYS.DEALS, deals);
-    logActivity('deal_moved', `${deal.clientName} moved to ${DEAL_STAGES.find(s => s.id === newStage)?.name}`);
-  }
-  return deals;
+export async function updateDealStage(dealId, newStage) {
+  const userId = await getUserId();
+  const now = new Date().toISOString();
+
+  const { data: deal, error: fetchErr } = await supabase
+    .from('deals')
+    .select('*')
+    .eq('id', dealId)
+    .eq('user_id', userId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  const stageHistory = deal.stage_history || [];
+  stageHistory.push({ stage: newStage, date: now });
+
+  const { error } = await supabase
+    .from('deals')
+    .update({
+      stage: newStage,
+      stage_history: stageHistory,
+      updated_at: now,
+    })
+    .eq('id', dealId);
+  if (error) throw error;
+
+  await logActivity('deal_moved', `${deal.client_name} moved to ${DEAL_STAGES.find(s => s.id === newStage)?.name}`);
 }
 
-export function deleteDeal(dealId) {
-  const deals = getDeals().filter(d => d.id !== dealId);
-  saveData(STORAGE_KEYS.DEALS, deals);
-  return deals;
+export async function deleteDeal(dealId) {
+  const { error } = await supabase
+    .from('deals')
+    .delete()
+    .eq('id', dealId);
+  if (error) throw error;
 }
 
 // ============ MASTER LIST ============
-export function getMasterList() {
-  return loadData(STORAGE_KEYS.MASTER_LIST, []);
+export async function getMasterList() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('master_list')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-export function saveMasterList(companies) {
-  saveData(STORAGE_KEYS.MASTER_LIST, companies);
-  logActivity('master_list_updated', `Master list updated with ${companies.length} companies`);
+export async function saveMasterList(companies) {
+  const userId = await getUserId();
+  const { error: delErr } = await supabase
+    .from('master_list')
+    .delete()
+    .eq('user_id', userId);
+  if (delErr) throw delErr;
+
+  if (companies.length > 0) {
+    const rows = companies.map(c => {
+      const row = { ...c, user_id: userId, updated_at: new Date().toISOString() };
+      if (!row.created_at) row.created_at = row.updated_at;
+      return row;
+    });
+    for (let i = 0; i < rows.length; i += 500) {
+      const batch = rows.slice(i, i + 500);
+      const { error } = await supabase.from('master_list').insert(batch);
+      if (error) throw error;
+    }
+  }
+
+  await logActivity('master_list_updated', `Master list updated with ${companies.length} companies`);
   return companies;
 }
 
-// Normalize a URL for dedup: strip protocol, www, trailing slash
 function normalizeUrl(url) {
   if (!url) return '';
   return url.replace(/https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '').toLowerCase().trim();
 }
 
-export function addToMasterList(companies) {
-  const existing = getMasterList();
+export async function addToMasterList(companies) {
+  const userId = await getUserId();
+  const existing = await getMasterList();
 
-  // Build a set of existing keys for dedup
   const existingKeys = new Set();
   for (const c of existing) {
     const website = normalizeUrl(c.website);
-    const name = (c.organizationName || '').toLowerCase().trim();
+    const name = (c.organizationName || c.organization_name || '').toLowerCase().trim();
     if (website) existingKeys.add(`url:${website}`);
     if (name) existingKeys.add(`name:${name}`);
   }
@@ -180,294 +251,498 @@ export function addToMasterList(companies) {
     if (isDupe) {
       skipped++;
     } else {
-      const newCompany = { ...c, id: c.id || uuidv4(), addedAt: new Date().toISOString() };
+      const newCompany = {
+        ...c,
+        user_id: userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      delete newCompany.id;
       added.push(newCompany);
       if (website) existingKeys.add(`url:${website}`);
       if (name) existingKeys.add(`name:${name}`);
     }
   }
 
-  const updated = [...existing, ...added];
-  saveData(STORAGE_KEYS.MASTER_LIST, updated);
-  logActivity('companies_imported', `${added.length} companies imported to Master List (${skipped} duplicates skipped)`);
+  if (added.length > 0) {
+    for (let i = 0; i < added.length; i += 500) {
+      const batch = added.slice(i, i + 500);
+      const { error } = await supabase.from('master_list').insert(batch);
+      if (error) throw error;
+    }
+  }
+
+  await logActivity('companies_imported', `${added.length} companies imported to Master List (${skipped} duplicates skipped)`);
+  const updated = await getMasterList();
   return { companies: updated, added: added.length, skipped };
 }
 
-export function deleteCompaniesFromMasterList(companyIds) {
-  const idSet = new Set(companyIds);
-  const companies = getMasterList().filter(c => !idSet.has(c.id));
-  saveData(STORAGE_KEYS.MASTER_LIST, companies);
+export async function updateMasterListItem(id, updates) {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('master_list')
+    .update({ ...updates, updated_at: now })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
 
-  // Cascading delete: contacts and follow-ups tied to these companies
-  const contacts = getContacts().filter(c => !idSet.has(c.companyId));
-  saveData(STORAGE_KEYS.CONTACTS, contacts);
-  const followUps = getFollowUps().filter(f => !idSet.has(f.companyId));
-  saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
-
-  logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
-  return companies;
+export async function deleteCompaniesFromMasterList(companyIds) {
+  for (const id of companyIds) {
+    await supabase.from('master_list').delete().eq('id', id);
+  }
+  await logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
+  return await getMasterList();
 }
 
 // ============ CONTACTS ============
-export function getContacts() {
-  return loadData(STORAGE_KEYS.CONTACTS, []);
+export async function getContacts() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('contacts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
-export function saveContact(contact) {
-  const contacts = getContacts();
+export async function saveContact(contact) {
+  const userId = await getUserId();
   const now = new Date().toISOString();
 
-  if (contact.id && contacts.find(c => c.id === contact.id)) {
-    const index = contacts.findIndex(c => c.id === contact.id);
-    contacts[index] = { ...contacts[index], ...contact, updatedAt: now };
+  if (contact.id) {
+    const { data, error } = await supabase
+      .from('contacts')
+      .update({ ...contact, user_id: userId, updated_at: now })
+      .eq('id', contact.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   } else {
-    contacts.push({ ...contact, id: contact.id || uuidv4(), addedAt: now, updatedAt: now });
+    const newContact = { ...contact, user_id: userId, created_at: now, updated_at: now };
+    delete newContact.id;
+    const { data, error } = await supabase
+      .from('contacts')
+      .insert(newContact)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   }
-
-  saveData(STORAGE_KEYS.CONTACTS, contacts);
-  return contacts;
 }
 
 // ============ PROSPECTS ============
-export function getProspects() {
-  return loadData(STORAGE_KEYS.PROSPECTS, []);
+export async function getProspects() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('prospects')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(p => ({
+    ...p,
+    addedAt: p.added_at || p.addedAt,
+    updatedAt: p.updated_at || p.updatedAt,
+    crmStage: p.crm_stage || p.crmStage,
+    organizationName: p.organization_name || p.organizationName,
+    contactName: p.contact_name || p.contactName,
+    contactEmail: p.contact_email || p.contactEmail,
+    contactTitle: p.contact_title || p.contactTitle,
+    prospectStatus: p.prospect_status || p.prospectStatus,
+    masterListId: p.master_list_id || p.masterListId,
+    convertedToDealId: p.converted_to_deal_id || p.convertedToDealId,
+  }));
 }
 
-export function saveProspect(prospect) {
-  const prospects = getProspects();
+export async function saveProspect(prospect) {
+  const userId = await getUserId();
   const now = new Date().toISOString();
 
-  if (prospect.id && prospects.find(p => p.id === prospect.id)) {
-    // Update existing
-    const index = prospects.findIndex(p => p.id === prospect.id);
-    prospects[index] = { ...prospects[index], ...prospect, updatedAt: now };
+  const dbRecord = {
+    user_id: userId,
+    organization_name: prospect.organizationName || prospect.organization_name || '',
+    contact_name: prospect.contactName || prospect.contact_name || '',
+    contact_email: prospect.contactEmail || prospect.contact_email || '',
+    contact_title: prospect.contactTitle || prospect.contact_title || '',
+    website: prospect.website || '',
+    crm_stage: prospect.crmStage || prospect.crm_stage || 'top_pursuits',
+    prospect_status: prospect.prospectStatus || prospect.prospect_status || '',
+    master_list_id: prospect.masterListId || prospect.master_list_id || null,
+    converted_to_deal_id: prospect.convertedToDealId || prospect.converted_to_deal_id || null,
+    notes: prospect.notes || [],
+    description: prospect.description || '',
+    industries: prospect.industries || '',
+    headquarters: prospect.headquarters || '',
+    employee_count: prospect.employeeCount || prospect.employee_count || '',
+    total_funding: prospect.totalFunding || prospect.total_funding || '',
+    updated_at: now,
+  };
+
+  if (prospect.id) {
+    const { data, error } = await supabase
+      .from('prospects')
+      .update(dbRecord)
+      .eq('id', prospect.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   } else {
-    // Add new
-    const newProspect = {
-      ...prospect,
-      id: prospect.id || uuidv4(),
-      addedAt: now,
-      updatedAt: now,
-      notes: prospect.notes || [],
-      followUps: prospect.followUps || [],
-    };
-    prospects.push(newProspect);
-    logActivity('prospect_added', `${prospect.organizationName} added to CRM`);
+    dbRecord.added_at = now;
+    dbRecord.created_at = now;
+    const { data, error } = await supabase
+      .from('prospects')
+      .insert(dbRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    await logActivity('prospect_added', `${dbRecord.organization_name} added to CRM`);
+    return data;
   }
-
-  saveData(STORAGE_KEYS.PROSPECTS, prospects);
-  return prospects;
 }
 
-export function updateProspectStage(prospectId, newStage) {
-  const prospects = getProspects();
-  const prospect = prospects.find(p => p.id === prospectId);
-  if (prospect) {
-    prospect.crmStage = newStage;
-    prospect.updatedAt = new Date().toISOString();
-    saveData(STORAGE_KEYS.PROSPECTS, prospects);
-    logActivity('prospect_moved', `${prospect.organizationName} moved to ${PROSPECT_STAGES.find(s => s.id === newStage)?.name}`);
-  }
-  return prospects;
+export async function updateProspectStage(prospectId, newStage) {
+  const now = new Date().toISOString();
+
+  const { data: prospect } = await supabase
+    .from('prospects')
+    .select('organization_name')
+    .eq('id', prospectId)
+    .single();
+
+  const { error } = await supabase
+    .from('prospects')
+    .update({ crm_stage: newStage, updated_at: now })
+    .eq('id', prospectId);
+  if (error) throw error;
+
+  await logActivity('prospect_moved', `${prospect?.organization_name || ''} moved to ${PROSPECT_STAGES.find(s => s.id === newStage)?.name}`);
 }
 
-export function addProspectNote(prospectId, note) {
-  const prospects = getProspects();
-  const prospect = prospects.find(p => p.id === prospectId);
-  if (prospect) {
-    prospect.notes = prospect.notes || [];
-    prospect.notes.unshift({
-      id: uuidv4(),
-      text: note,
-      createdAt: new Date().toISOString(),
-    });
-    prospect.updatedAt = new Date().toISOString();
-    saveData(STORAGE_KEYS.PROSPECTS, prospects);
-  }
-  return prospects;
+export async function addProspectNote(prospectId, note) {
+  const now = new Date().toISOString();
+
+  const { data: prospect, error: fetchErr } = await supabase
+    .from('prospects')
+    .select('notes')
+    .eq('id', prospectId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  const notes = prospect.notes || [];
+  notes.unshift({ id: crypto.randomUUID(), text: note, createdAt: now });
+
+  const { error } = await supabase
+    .from('prospects')
+    .update({ notes, updated_at: now })
+    .eq('id', prospectId);
+  if (error) throw error;
 }
 
-export function deleteProspect(prospectId) {
-  const prospects = getProspects().filter(p => p.id !== prospectId);
-  saveData(STORAGE_KEYS.PROSPECTS, prospects);
-  return prospects;
+export async function deleteProspect(prospectId) {
+  const { error } = await supabase
+    .from('prospects')
+    .delete()
+    .eq('id', prospectId);
+  if (error) throw error;
 }
 
 // ============ COMMISSIONS ============
-export function getCommissions() {
-  return loadData(STORAGE_KEYS.COMMISSIONS, []);
+export async function getCommissions() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('commissions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(c => ({
+    ...c,
+    clientName: c.client_name || c.clientName,
+    squareFootage: c.square_footage || c.squareFootage,
+    annualRent: c.annual_rent || c.annualRent,
+    leaseTerm: c.lease_term || c.leaseTerm,
+    commissionRate: c.commission_rate || c.commissionRate,
+    calculatedAmount: c.calculated_amount || c.calculatedAmount || 0,
+    landlordBuilding: c.landlord_building || c.landlordBuilding,
+    expectedCloseDate: c.expected_close_date || c.expectedCloseDate,
+    linkedDealId: c.linked_deal_id || c.linkedDealId || c.deal_id || c.dealId,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  }));
 }
 
-export function saveCommission(commission) {
-  const commissions = getCommissions();
+export async function saveCommission(commission) {
+  const userId = await getUserId();
   const now = new Date().toISOString();
 
-  // Calculate commission amount
   const sqft = parseFloat(commission.squareFootage) || 0;
   const annualRent = parseFloat(commission.annualRent) || 0;
   const termYears = (parseFloat(commission.leaseTerm) || 0) / 12;
   const rate = (parseFloat(commission.commissionRate) || 0) / 100;
   const calculatedAmount = sqft * annualRent * termYears * rate;
 
-  if (commission.id) {
-    const index = commissions.findIndex(c => c.id === commission.id);
-    if (index !== -1) {
-      commissions[index] = {
-        ...commissions[index],
-        ...commission,
-        calculatedAmount,
-        updatedAt: now
-      };
-    }
-  } else {
-    commissions.push({
-      ...commission,
-      id: uuidv4(),
-      calculatedAmount,
-      createdAt: now,
-      updatedAt: now,
-    });
-    logActivity('commission_added', `Commission added for ${commission.clientName}`);
-  }
+  const dbRecord = {
+    user_id: userId,
+    client_name: commission.clientName || '',
+    landlord_building: commission.landlordBuilding || '',
+    square_footage: commission.squareFootage || '',
+    lease_term: commission.leaseTerm || '',
+    annual_rent: commission.annualRent || '',
+    commission_rate: commission.commissionRate || '',
+    calculated_amount: calculatedAmount,
+    expected_close_date: commission.expectedCloseDate || null,
+    status: commission.status || 'projected',
+    notes: commission.notes || '',
+    linked_deal_id: commission.linkedDealId || commission.dealId || null,
+    updated_at: now,
+  };
 
-  saveData(STORAGE_KEYS.COMMISSIONS, commissions);
-  return commissions;
+  if (commission.id) {
+    const { data, error } = await supabase
+      .from('commissions')
+      .update(dbRecord)
+      .eq('id', commission.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  } else {
+    dbRecord.created_at = now;
+    const { data, error } = await supabase
+      .from('commissions')
+      .insert(dbRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    await logActivity('commission_added', `Commission added for ${dbRecord.client_name}`);
+    return data;
+  }
 }
 
-export function deleteCommission(commissionId) {
-  const commissions = getCommissions().filter(c => c.id !== commissionId);
-  saveData(STORAGE_KEYS.COMMISSIONS, commissions);
-  return commissions;
+export async function deleteCommission(commissionId) {
+  const { error } = await supabase
+    .from('commissions')
+    .delete()
+    .eq('id', commissionId);
+  if (error) throw error;
 }
 
 // ============ FOLLOW-UPS ============
-export function getFollowUps() {
-  return loadData(STORAGE_KEYS.FOLLOWUPS, []);
+export async function getFollowUps() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('follow_ups')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(f => ({
+    ...f,
+    companyName: f.company_name || f.companyName,
+    contactName: f.contact_name || f.contactName,
+    dueDate: f.due_date || f.dueDate,
+    entityType: f.entity_type || f.entityType,
+    entityId: f.entity_id || f.entityId,
+    companyId: f.company_id || f.companyId,
+    completedAt: f.completed_at || f.completedAt,
+    createdAt: f.created_at || f.createdAt,
+  }));
 }
 
-export function saveFollowUp(followUp) {
-  const followUps = getFollowUps();
+export async function saveFollowUp(followUp) {
+  const userId = await getUserId();
   const now = new Date().toISOString();
 
+  const dbRecord = {
+    user_id: userId,
+    company_name: followUp.companyName || '',
+    contact_name: followUp.contactName || '',
+    due_date: followUp.dueDate || null,
+    entity_type: followUp.entityType || null,
+    entity_id: followUp.entityId || null,
+    company_id: followUp.companyId || null,
+    completed: false,
+    notes: followUp.notes || '',
+    updated_at: now,
+  };
+
   if (followUp.id) {
-    const index = followUps.findIndex(f => f.id === followUp.id);
-    if (index !== -1) {
-      followUps[index] = { ...followUps[index], ...followUp, updatedAt: now };
-    }
+    const { data, error } = await supabase
+      .from('follow_ups')
+      .update(dbRecord)
+      .eq('id', followUp.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   } else {
-    followUps.push({
-      ...followUp,
-      id: uuidv4(),
-      createdAt: now,
-      completed: false,
-    });
+    dbRecord.created_at = now;
+    const { data, error } = await supabase
+      .from('follow_ups')
+      .insert(dbRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   }
-
-  saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
-  return followUps;
 }
 
-export function completeFollowUp(followUpId) {
-  const followUps = getFollowUps();
-  const followUp = followUps.find(f => f.id === followUpId);
-  if (followUp) {
-    followUp.completed = true;
-    followUp.completedAt = new Date().toISOString();
-    saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
-    logActivity('followup_completed', `Follow-up completed for ${followUp.companyName}`);
-  }
-  return followUps;
+export async function completeFollowUp(followUpId) {
+  const now = new Date().toISOString();
+
+  const { data: followUp } = await supabase
+    .from('follow_ups')
+    .select('company_name')
+    .eq('id', followUpId)
+    .single();
+
+  const { error } = await supabase
+    .from('follow_ups')
+    .update({ completed: true, completed_at: now })
+    .eq('id', followUpId);
+  if (error) throw error;
+
+  await logActivity('followup_completed', `Follow-up completed for ${followUp?.company_name || 'Unknown'}`);
 }
 
-export function deleteFollowUp(followUpId) {
-  const followUps = getFollowUps().filter(f => f.id !== followUpId);
-  saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
-  return followUps;
+export async function deleteFollowUp(followUpId) {
+  const { error } = await supabase
+    .from('follow_ups')
+    .delete()
+    .eq('id', followUpId);
+  if (error) throw error;
 }
 
 // ============ ACTIVITY LOG ============
-export function getActivityLog() {
-  return loadData(STORAGE_KEYS.ACTIVITY_LOG, []);
+export async function getActivityLog() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('activity_log')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data || []).map(a => ({
+    ...a,
+    timestamp: a.created_at || a.timestamp,
+  }));
 }
 
-export function logActivity(type, message) {
-  const activities = getActivityLog();
-  activities.unshift({
-    id: uuidv4(),
-    type,
-    message,
-    timestamp: new Date().toISOString(),
-  });
-  // Keep only last 100 activities
-  const trimmed = activities.slice(0, 100);
-  saveData(STORAGE_KEYS.ACTIVITY_LOG, trimmed);
-  return trimmed;
+export async function logActivity(type, message) {
+  try {
+    const userId = await getUserId();
+    await supabase
+      .from('activity_log')
+      .insert({
+        user_id: userId,
+        type,
+        message,
+        created_at: new Date().toISOString(),
+      });
+  } catch (e) {
+    console.error('Failed to log activity:', e);
+  }
 }
 
 // ============ PROSPECT → DEAL CONVERSION ============
-export function convertProspectToDeal(prospectId) {
-  const prospects = getProspects();
-  const prospect = prospects.find(p => p.id === prospectId);
+export async function convertProspectToDeal(prospectId) {
+  const userId = await getUserId();
+  const now = new Date().toISOString();
+
+  const { data: prospect, error: fetchErr } = await supabase
+    .from('prospects')
+    .select('*')
+    .eq('id', prospectId)
+    .single();
+  if (fetchErr) throw fetchErr;
   if (!prospect) throw new Error('Prospect not found');
 
-  const now = new Date().toISOString();
   const newDeal = {
-    id: uuidv4(),
-    prospectId: prospect.id,
-    companyId: prospect.masterListId || null,
-    clientName: prospect.organizationName,
-    contactName: prospect.contactName || '',
-    contactEmail: prospect.contactEmail || '',
+    user_id: userId,
+    client_name: prospect.organization_name || '',
+    contact_name: prospect.contact_name || '',
+    contact_email: prospect.contact_email || '',
     stage: 'kickoff',
-    stageHistory: [{ stage: 'kickoff', date: now }],
-    createdAt: now,
-    updatedAt: now,
+    stage_history: [{ stage: 'kickoff', date: now }],
     notes: `Converted from prospect on ${new Date().toLocaleDateString()}`,
+    prospect_id: prospect.id,
+    company_id: prospect.master_list_id || null,
+    created_at: now,
+    updated_at: now,
   };
 
-  const deals = getDeals();
-  deals.push(newDeal);
-  saveData(STORAGE_KEYS.DEALS, deals);
+  const { data: deal, error: dealErr } = await supabase
+    .from('deals')
+    .insert(newDeal)
+    .select()
+    .single();
+  if (dealErr) throw dealErr;
 
-  // Update prospect
-  const idx = prospects.findIndex(p => p.id === prospectId);
-  prospects[idx].convertedToDealId = newDeal.id;
-  prospects[idx].crmStage = 'clients';
-  saveData(STORAGE_KEYS.PROSPECTS, prospects);
+  await supabase
+    .from('prospects')
+    .update({
+      converted_to_deal_id: deal.id,
+      crm_stage: 'clients',
+      updated_at: now,
+    })
+    .eq('id', prospectId);
 
-  logActivity('prospect_converted', `${prospect.organizationName} converted to deal`);
-  return { deal: newDeal, deals, prospects };
+  await logActivity('prospect_converted', `${prospect.organization_name} converted to deal`);
+  return { deal, prospect };
 }
 
 // ============ AUTO-CREATE COMMISSION FROM DEAL ============
-export function createCommissionFromDeal(dealId) {
-  const deals = getDeals();
-  const deal = deals.find(d => d.id === dealId);
+export async function createCommissionFromDeal(dealId) {
+  const userId = await getUserId();
+
+  const { data: deal, error: fetchErr } = await supabase
+    .from('deals')
+    .select('*')
+    .eq('id', dealId)
+    .single();
+  if (fetchErr) throw fetchErr;
   if (!deal) throw new Error('Deal not found');
 
-  const existing = getCommissions().find(c => c.dealId === dealId);
+  const { data: existing } = await supabase
+    .from('commissions')
+    .select('*')
+    .eq('linked_deal_id', dealId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
   if (existing) return { commission: existing, alreadyExists: true };
 
-  const commission = {
-    id: uuidv4(),
-    dealId: deal.id,
-    clientName: deal.clientName,
-    squareFootage: deal.squareFootage || '',
-    annualRent: deal.targetBudget || '',
-    leaseTerm: '',
-    commissionRate: '4',
+  const now = new Date().toISOString();
+  const commissionRecord = {
+    user_id: userId,
+    linked_deal_id: deal.id,
+    client_name: deal.client_name || '',
+    square_footage: deal.square_footage || '',
+    annual_rent: deal.target_budget || '',
+    lease_term: '',
+    commission_rate: '4',
     status: 'in_contract',
-    calculatedAmount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    calculated_amount: 0,
     notes: `Auto-created from deal on ${new Date().toLocaleDateString()}`,
+    created_at: now,
+    updated_at: now,
   };
 
-  const commissions = getCommissions();
-  commissions.push(commission);
-  saveData(STORAGE_KEYS.COMMISSIONS, commissions);
-  logActivity('commission_auto_created', `Commission auto-created for ${deal.clientName}`);
+  const { data: commission, error } = await supabase
+    .from('commissions')
+    .insert(commissionRecord)
+    .select()
+    .single();
+  if (error) throw error;
 
+  await logActivity('commission_auto_created', `Commission auto-created for ${commissionRecord.client_name}`);
   return { commission, alreadyExists: false };
 }
 
@@ -476,26 +751,28 @@ const STALE_THRESHOLDS = {
   kickoff: 14, touring: 21, loi: 14, negotiation: 30, consent: 21,
 };
 
-export function getStaleDeals() {
-  const deals = getDeals();
+export async function getStaleDeals() {
+  const deals = await getDeals();
   const now = new Date();
   return deals.filter(deal => {
+    const history = deal.stageHistory || deal.stage_history || [];
     if (deal.stage === 'closed' || deal.stage === 'lost') return false;
-    if (!deal.stageHistory?.length) return false;
-    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    if (!history.length) return false;
+    const lastChange = history[history.length - 1];
     const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
     const threshold = STALE_THRESHOLDS[deal.stage];
     return threshold && days > threshold;
   }).map(deal => {
-    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const history = deal.stageHistory || deal.stage_history || [];
+    const lastChange = history[history.length - 1];
     const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
     return { ...deal, daysInStage: days, threshold: STALE_THRESHOLDS[deal.stage] };
   });
 }
 
 // ============ RESEARCH AGENT ============
-function getProxyHeaders() {
-  const settings = getSettings();
+async function getProxyHeaders() {
+  const settings = await getSettings();
   const headers = { 'Content-Type': 'application/json' };
   if (settings.proxySecret) {
     headers['Authorization'] = `Bearer ${settings.proxySecret}`;
@@ -504,12 +781,12 @@ function getProxyHeaders() {
 }
 
 export async function enrichCompany(domain) {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
 
   const res = await fetch(`${settings.proxyUrl}/enrich`, {
     method: 'POST',
-    headers: getProxyHeaders(),
+    headers: await getProxyHeaders(),
     body: JSON.stringify({
       domain,
       perplexityApiKey: settings.perplexityApiKey || '',
@@ -524,7 +801,7 @@ export async function enrichCompany(domain) {
 }
 
 export async function runResearchAgent(domain, onProgress = () => {}, companyData = {}) {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
 
   const csvData = {
@@ -551,7 +828,7 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
   try {
     res = await fetch(`${settings.proxyUrl}/agent`, {
       method: 'POST',
-      headers: getProxyHeaders(),
+      headers: await getProxyHeaders(),
       body: JSON.stringify({
         domain,
         csvData,
@@ -571,7 +848,6 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
     throw new Error(`Agent failed (${res.status})${detail ? ': ' + detail : ''}`);
   }
 
-  // Handle streaming progress
   const reader = res.body?.getReader();
   if (!reader) return res.json();
 
@@ -603,7 +879,6 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
         }
       } catch (parseErr) {
         if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
-        // skip unparseable lines
       }
     }
   }
@@ -625,33 +900,65 @@ export const CLAUSE_CATEGORIES = [
   { id: 'other', name: 'Other' },
 ];
 
-export function getClauses() {
-  return loadData(STORAGE_KEYS.CLAUSES);
+export async function getClauses() {
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from('clauses')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(c => ({
+    ...c,
+    clauseText: c.clause_text || c.clauseText,
+    sourceLease: c.source_lease || c.sourceLease,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  }));
 }
 
-export function saveClause(data) {
-  const clauses = getClauses();
-  if (data.id) {
-    const idx = clauses.findIndex(c => c.id === data.id);
-    if (idx !== -1) {
-      clauses[idx] = { ...clauses[idx], ...data, updatedAt: new Date().toISOString() };
-    }
+export async function saveClause(clauseData) {
+  const userId = await getUserId();
+  const now = new Date().toISOString();
+
+  const dbRecord = {
+    user_id: userId,
+    title: clauseData.title || '',
+    category: clauseData.category || 'other',
+    clause_text: clauseData.clauseText || '',
+    notes: clauseData.notes || '',
+    source_lease: clauseData.sourceLease || '',
+    tags: clauseData.tags || [],
+    updated_at: now,
+  };
+
+  if (clauseData.id) {
+    const { data, error } = await supabase
+      .from('clauses')
+      .update(dbRecord)
+      .eq('id', clauseData.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   } else {
-    clauses.unshift({
-      ...data,
-      id: uuidv4(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    dbRecord.created_at = now;
+    const { data, error } = await supabase
+      .from('clauses')
+      .insert(dbRecord)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   }
-  saveData(STORAGE_KEYS.CLAUSES, clauses);
-  return clauses;
 }
 
-export function deleteClause(id) {
-  const clauses = getClauses().filter(c => c.id !== id);
-  saveData(STORAGE_KEYS.CLAUSES, clauses);
-  return clauses;
+export async function deleteClause(id) {
+  const { error } = await supabase
+    .from('clauses')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
 }
 
 // ============ CHAT ============
@@ -669,7 +976,7 @@ export function getChatContext(contextType, contextData) {
 }
 
 export async function sendChatMessage(messages, context) {
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
 
   const fullMessages = context
@@ -678,7 +985,7 @@ export async function sendChatMessage(messages, context) {
 
   const res = await fetch(`${settings.proxyUrl}/chat`, {
     method: 'POST',
-    headers: getProxyHeaders(),
+    headers: await getProxyHeaders(),
     body: JSON.stringify({
       messages: fullMessages,
       perplexityApiKey: settings.perplexityApiKey || '',
@@ -693,11 +1000,14 @@ export async function sendChatMessage(messages, context) {
 }
 
 // ============ DASHBOARD STATS ============
-export function getDashboardStats() {
-  const deals = getDeals();
-  const prospects = getProspects();
-  const commissions = getCommissions();
-  const followUps = getFollowUps();
+export async function getDashboardStats() {
+  const [deals, prospects, commissions, followUps, activityLog] = await Promise.all([
+    getDeals(),
+    getProspects(),
+    getCommissions(),
+    getFollowUps(),
+    getActivityLog(),
+  ]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -706,36 +1016,32 @@ export function getDashboardStats() {
   const weekFromNow = new Date(today);
   weekFromNow.setDate(weekFromNow.getDate() + 7);
 
-  // Follow-up stats
   const pendingFollowUps = followUps.filter(f => !f.completed);
-  const overdueFollowUps = pendingFollowUps.filter(f => new Date(f.dueDate) < today);
-  const todayFollowUps = pendingFollowUps.filter(f => f.dueDate?.split('T')[0] === todayStr);
+  const overdueFollowUps = pendingFollowUps.filter(f => new Date(f.dueDate || f.due_date) < today);
+  const todayFollowUps = pendingFollowUps.filter(f => (f.dueDate || f.due_date || '')?.split('T')[0] === todayStr);
   const thisWeekFollowUps = pendingFollowUps.filter(f => {
-    const dueDate = new Date(f.dueDate);
+    const dueDate = new Date(f.dueDate || f.due_date);
     return dueDate >= today && dueDate <= weekFromNow;
   });
 
-  // Deal stats by stage
   const dealsByStage = DEAL_STAGES.reduce((acc, stage) => {
     acc[stage.id] = deals.filter(d => d.stage === stage.id).length;
     return acc;
   }, {});
 
-  // Commission stats
   const projectedCommissions = commissions
     .filter(c => c.status === 'projected' || c.status === 'in_contract')
-    .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0);
+    .reduce((sum, c) => sum + (c.calculatedAmount || c.calculated_amount || 0), 0);
 
   const closedCommissions = commissions
     .filter(c => c.status === 'closed')
-    .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0);
+    .reduce((sum, c) => sum + (c.calculatedAmount || c.calculated_amount || 0), 0);
 
   const paidCommissions = commissions
     .filter(c => c.status === 'paid')
-    .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0);
+    .reduce((sum, c) => sum + (c.calculatedAmount || c.calculated_amount || 0), 0);
 
-  // Prospect stats
-  const hotProspects = prospects.filter(p => p.prospectStatus === '🔥 Hot Prospect').length;
+  const hotProspects = prospects.filter(p => (p.prospectStatus || p.prospect_status) === '🔥 Hot Prospect').length;
 
   return {
     deals: {
@@ -743,7 +1049,8 @@ export function getDashboardStats() {
       byStage: dealsByStage,
       closedThisMonth: deals.filter(d => {
         if (d.stage !== 'closed') return false;
-        const closedDate = d.stageHistory?.find(h => h.stage === 'closed')?.date;
+        const history = d.stageHistory || d.stage_history || [];
+        const closedDate = history.find(h => h.stage === 'closed')?.date;
         if (!closedDate) return false;
         const date = new Date(closedDate);
         return date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
@@ -753,7 +1060,7 @@ export function getDashboardStats() {
       total: prospects.length,
       hotProspects,
       byStage: PROSPECT_STAGES.reduce((acc, stage) => {
-        acc[stage.id] = prospects.filter(p => p.crmStage === stage.id).length;
+        acc[stage.id] = prospects.filter(p => (p.crmStage || p.crm_stage) === stage.id).length;
         return acc;
       }, {}),
     },
@@ -771,6 +1078,6 @@ export function getDashboardStats() {
       todayList: todayFollowUps.slice(0, 5),
       thisWeekList: thisWeekFollowUps.slice(0, 10),
     },
-    recentActivity: getActivityLog().slice(0, 10),
+    recentActivity: activityLog.slice(0, 10),
   };
 }
