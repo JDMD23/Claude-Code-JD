@@ -124,7 +124,7 @@ function LeaseIntelligence() {
     setRedlineDiff({ segments: result, added, removed });
   };
 
-  if (loading) return <div className="page fade-in"><p>Loading clauses...</p></div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   return (
     <div className="page fade-in">

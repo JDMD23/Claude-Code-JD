@@ -142,7 +142,7 @@ function Settings() {
     if (importRef.current) importRef.current.value = '';
   };
 
-  if (loading || !settings) return <div className="page fade-in"><p>Loading settings...</p></div>;
+  if (loading || !settings) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   return (
     <div className="page fade-in">

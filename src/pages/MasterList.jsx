@@ -798,7 +798,7 @@ function MasterList() {
 
   const selectedCompanies = filteredCompanies.filter(c => selectedIds.has(c.id));
 
-  if (loading) return <div className="page fade-in"><p>Loading master list...</p></div>;
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   return (
     <div className="page fade-in">
