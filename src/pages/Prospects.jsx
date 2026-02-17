@@ -239,6 +239,12 @@ function Prospects() {
   );
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const showError = (msg) => {
+    setError(msg);
+    setTimeout(() => setError(null), 6000);
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -247,6 +253,7 @@ function Prospects() {
         setProspects(data);
       } catch (err) {
         console.error('Failed to load prospects:', err);
+        showError(`Failed to load prospects: ${err.message || err}`);
       } finally {
         setLoading(false);
       }
@@ -280,6 +287,7 @@ function Prospects() {
           setProspects(updated);
         } catch (err) {
           console.error('Failed to update prospect stage:', err);
+          showError(`Failed to move prospect: ${err.message || err}`);
         }
       }
     }
@@ -294,6 +302,7 @@ function Prospects() {
       setShowAddModal(false);
     } catch (err) {
       console.error('Failed to add prospect:', err);
+      showError(`Failed to add prospect: ${err.message || err}`);
     }
   };
 
@@ -305,6 +314,7 @@ function Prospects() {
       setSelectedProspect(null);
     } catch (err) {
       console.error('Failed to delete prospect:', err);
+      showError(`Failed to delete prospect: ${err.message || err}`);
     }
   };
 
@@ -321,6 +331,7 @@ function Prospects() {
       navigate('/pipeline');
     } catch (err) {
       console.error('Failed to convert prospect to deal:', err);
+      showError(`Failed to convert prospect: ${err.message || err}`);
     }
   };
 
@@ -332,6 +343,22 @@ function Prospects() {
 
   return (
     <div className="page fade-in">
+      {error && (
+        <div style={{
+          background: '#dc2626',
+          color: '#fff',
+          padding: '0.75rem 1rem',
+          borderRadius: '8px',
+          marginBottom: '1rem',
+          fontSize: '0.85rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.1rem' }}>&times;</button>
+        </div>
+      )}
       <div className="page-header">
         <div>
           <h1>Prospects CRM</h1>
@@ -425,6 +452,7 @@ function Prospects() {
               setSelectedProspect(null);
             } catch (err) {
               console.error('Failed to save prospect:', err);
+              showError(`Failed to save prospect: ${err.message || err}`);
             }
           }}
           onDelete={handleDeleteProspect}

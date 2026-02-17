@@ -186,52 +186,85 @@ ALTER TABLE follow_ups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clauses ENABLE ROW LEVEL SECURITY;
 
--- Settings policies
+-- Settings policies (DROP IF EXISTS for idempotency - safe to run multiple times)
+DROP POLICY IF EXISTS "Users can view own settings" ON settings;
+DROP POLICY IF EXISTS "Users can insert own settings" ON settings;
+DROP POLICY IF EXISTS "Users can update own settings" ON settings;
 CREATE POLICY "Users can view own settings" ON settings FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own settings" ON settings FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own settings" ON settings FOR UPDATE USING (auth.uid() = user_id);
 
 -- Deals policies
+DROP POLICY IF EXISTS "Users can view own deals" ON deals;
+DROP POLICY IF EXISTS "Users can insert own deals" ON deals;
+DROP POLICY IF EXISTS "Users can update own deals" ON deals;
+DROP POLICY IF EXISTS "Users can delete own deals" ON deals;
 CREATE POLICY "Users can view own deals" ON deals FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own deals" ON deals FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own deals" ON deals FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own deals" ON deals FOR DELETE USING (auth.uid() = user_id);
 
 -- Master list policies
+DROP POLICY IF EXISTS "Users can view own master_list" ON master_list;
+DROP POLICY IF EXISTS "Users can insert own master_list" ON master_list;
+DROP POLICY IF EXISTS "Users can update own master_list" ON master_list;
+DROP POLICY IF EXISTS "Users can delete own master_list" ON master_list;
 CREATE POLICY "Users can view own master_list" ON master_list FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own master_list" ON master_list FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own master_list" ON master_list FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own master_list" ON master_list FOR DELETE USING (auth.uid() = user_id);
 
 -- Contacts policies
+DROP POLICY IF EXISTS "Users can view own contacts" ON contacts;
+DROP POLICY IF EXISTS "Users can insert own contacts" ON contacts;
+DROP POLICY IF EXISTS "Users can update own contacts" ON contacts;
+DROP POLICY IF EXISTS "Users can delete own contacts" ON contacts;
 CREATE POLICY "Users can view own contacts" ON contacts FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own contacts" ON contacts FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own contacts" ON contacts FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own contacts" ON contacts FOR DELETE USING (auth.uid() = user_id);
 
 -- Prospects policies
+DROP POLICY IF EXISTS "Users can view own prospects" ON prospects;
+DROP POLICY IF EXISTS "Users can insert own prospects" ON prospects;
+DROP POLICY IF EXISTS "Users can update own prospects" ON prospects;
+DROP POLICY IF EXISTS "Users can delete own prospects" ON prospects;
 CREATE POLICY "Users can view own prospects" ON prospects FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own prospects" ON prospects FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own prospects" ON prospects FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own prospects" ON prospects FOR DELETE USING (auth.uid() = user_id);
 
 -- Commissions policies
+DROP POLICY IF EXISTS "Users can view own commissions" ON commissions;
+DROP POLICY IF EXISTS "Users can insert own commissions" ON commissions;
+DROP POLICY IF EXISTS "Users can update own commissions" ON commissions;
+DROP POLICY IF EXISTS "Users can delete own commissions" ON commissions;
 CREATE POLICY "Users can view own commissions" ON commissions FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own commissions" ON commissions FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own commissions" ON commissions FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own commissions" ON commissions FOR DELETE USING (auth.uid() = user_id);
 
 -- Follow-ups policies
+DROP POLICY IF EXISTS "Users can view own follow_ups" ON follow_ups;
+DROP POLICY IF EXISTS "Users can insert own follow_ups" ON follow_ups;
+DROP POLICY IF EXISTS "Users can update own follow_ups" ON follow_ups;
+DROP POLICY IF EXISTS "Users can delete own follow_ups" ON follow_ups;
 CREATE POLICY "Users can view own follow_ups" ON follow_ups FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own follow_ups" ON follow_ups FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own follow_ups" ON follow_ups FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own follow_ups" ON follow_ups FOR DELETE USING (auth.uid() = user_id);
 
 -- Activity log policies
+DROP POLICY IF EXISTS "Users can view own activity_log" ON activity_log;
+DROP POLICY IF EXISTS "Users can insert own activity_log" ON activity_log;
 CREATE POLICY "Users can view own activity_log" ON activity_log FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own activity_log" ON activity_log FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Clauses policies
+DROP POLICY IF EXISTS "Users can view own clauses" ON clauses;
+DROP POLICY IF EXISTS "Users can insert own clauses" ON clauses;
+DROP POLICY IF EXISTS "Users can update own clauses" ON clauses;
+DROP POLICY IF EXISTS "Users can delete own clauses" ON clauses;
 CREATE POLICY "Users can view own clauses" ON clauses FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own clauses" ON clauses FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own clauses" ON clauses FOR UPDATE USING (auth.uid() = user_id);
