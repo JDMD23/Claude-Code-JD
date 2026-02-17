@@ -520,22 +520,33 @@ function MasterList() {
   });
   const fileInputRef = useRef(null);
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    let data = getMasterList();
-    // Backfill tiers for companies that don't have one
-    let needsSave = false;
-    data = data.map(c => {
-      if (!c.tier) {
-        const tier = autoAssignTier(c);
-        if (tier) {
-          needsSave = true;
-          return { ...c, tier };
-        }
+    async function loadData() {
+      try {
+        let data = await getMasterList();
+        // Backfill tiers for companies that don't have one
+        let needsSave = false;
+        data = data.map(c => {
+          if (!c.tier) {
+            const tier = autoAssignTier(c);
+            if (tier) {
+              needsSave = true;
+              return { ...c, tier };
+            }
+          }
+          return c;
+        });
+        if (needsSave) await saveMasterList(data);
+        setCompanies(data);
+      } catch (err) {
+        console.error('Failed to load master list:', err);
+      } finally {
+        setLoading(false);
       }
-      return c;
-    });
-    if (needsSave) saveMasterList(data);
-    setCompanies(data);
+    }
+    loadData();
   }, []);
 
   // Handle file upload
@@ -557,16 +568,21 @@ function MasterList() {
     }
 
     if (mappedData.length > 0) {
-      const { companies: updated, added, skipped } = addToMasterList(mappedData);
-      setCompanies(updated);
-      alert(`Imported ${added} new${skipped > 0 ? `, ${skipped} duplicates skipped` : ''}.`);
+      try {
+        const { companies: updated, added, skipped } = await addToMasterList(mappedData);
+        setCompanies(updated);
+        alert(`Imported ${added} new${skipped > 0 ? `, ${skipped} duplicates skipped` : ''}.`);
+      } catch (err) {
+        console.error('Failed to import companies:', err);
+        alert('Failed to import companies: ' + err.message);
+      }
     } else {
       alert('No data found in CSV file');
     }
   };
 
   // Quick Add by domain
-  const handleQuickAdd = () => {
+  const handleQuickAdd = async () => {
     const domain = quickAddDomain.trim().replace(/https?:\/\//, '').replace(/^www\./, '').split('/')[0];
     if (!domain) return;
 
@@ -575,22 +591,27 @@ function MasterList() {
       website: `https://${domain}`,
     };
 
-    const { companies: updated, added } = addToMasterList([companyData]);
-    setCompanies(updated);
-    setQuickAddDomain('');
+    try {
+      const { companies: updated, added } = await addToMasterList([companyData]);
+      setCompanies(updated);
+      setQuickAddDomain('');
 
-    if (added === 0) {
-      alert('Company already exists in master list.');
-      return;
-    }
-
-    // Auto-enrich if enabled
-    const settings = getSettings();
-    if (settings.autoEnrich && settings.proxyUrl) {
-      const newCompany = updated.find(c => getDomain(c.website) === domain);
-      if (newCompany) {
-        handleRunAgent(newCompany);
+      if (added === 0) {
+        alert('Company already exists in master list.');
+        return;
       }
+
+      // Auto-enrich if enabled
+      const settings = await getSettings();
+      if (settings.autoEnrich && settings.proxyUrl) {
+        const newCompany = updated.find(c => getDomain(c.website) === domain);
+        if (newCompany) {
+          handleRunAgent(newCompany);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to quick add:', err);
+      alert('Failed to add company: ' + err.message);
     }
   };
 
@@ -615,7 +636,8 @@ function MasterList() {
       }
 
       // Merge dossier into the company record + promote key fields to top level
-      const updatedCompanies = getMasterList().map(c => {
+      const currentList = await getMasterList();
+      const updatedCompanies = currentList.map(c => {
         if (c.id === company.id) {
           return {
             ...c,
@@ -637,7 +659,7 @@ function MasterList() {
         }
         return c;
       });
-      saveMasterList(updatedCompanies);
+      await saveMasterList(updatedCompanies);
       setCompanies(updatedCompanies);
 
       // Refresh the selected company view
@@ -691,23 +713,28 @@ function MasterList() {
   };
 
   // Add to CRM
-  const handleAddToCRM = (companiesToAdd, stage) => {
-    const prospects = getProspects();
-    const existingIds = new Set(prospects.map(p => p.masterListId));
+  const handleAddToCRM = async (companiesToAdd, stage) => {
+    try {
+      const prospects = await getProspects();
+      const existingIds = new Set(prospects.map(p => p.masterListId));
 
-    companiesToAdd.forEach(company => {
-      if (!existingIds.has(company.id)) {
-        saveProspect({
-          ...company,
-          masterListId: company.id,
-          crmStage: stage,
-        });
+      for (const company of companiesToAdd) {
+        if (!existingIds.has(company.id)) {
+          await saveProspect({
+            ...company,
+            masterListId: company.id,
+            crmStage: stage,
+          });
+        }
       }
-    });
 
-    setSelectedIds(new Set());
-    setShowCRMModal(false);
-    alert(`Added ${companiesToAdd.length} companies to CRM!`);
+      setSelectedIds(new Set());
+      setShowCRMModal(false);
+      alert(`Added ${companiesToAdd.length} companies to CRM!`);
+    } catch (err) {
+      console.error('Failed to add to CRM:', err);
+      alert('Failed to add companies to CRM: ' + err.message);
+    }
   };
 
   // Filter companies
@@ -754,18 +781,24 @@ function MasterList() {
   useEffect(() => { setPage(0); }, [searchTerm, filters, activeTier]);
 
   // Tier change handler (used by CompanyModal and bulk actions)
-  const handleTierChange = (companyId, newTier) => {
+  const handleTierChange = async (companyId, newTier) => {
     const updated = companies.map(c =>
       c.id === companyId ? { ...c, tier: newTier } : c
     );
-    saveMasterList(updated);
-    setCompanies(updated);
-    if (selectedCompany && selectedCompany.id === companyId) {
-      setSelectedCompany({ ...selectedCompany, tier: newTier });
+    try {
+      await saveMasterList(updated);
+      setCompanies(updated);
+      if (selectedCompany && selectedCompany.id === companyId) {
+        setSelectedCompany({ ...selectedCompany, tier: newTier });
+      }
+    } catch (err) {
+      console.error('Failed to update tier:', err);
     }
   };
 
   const selectedCompanies = filteredCompanies.filter(c => selectedIds.has(c.id));
+
+  if (loading) return <div className="page fade-in"><p>Loading master list...</p></div>;
 
   return (
     <div className="page fade-in">
@@ -778,15 +811,19 @@ function MasterList() {
           {selectedIds.size > 0 && (
             <>
               <select
-                onChange={(e) => {
+                onChange={async (e) => {
                   if (!e.target.value) return;
                   const newTier = e.target.value;
                   const updated = companies.map(c =>
                     selectedIds.has(c.id) ? { ...c, tier: newTier } : c
                   );
-                  saveMasterList(updated);
-                  setCompanies(updated);
-                  setSelectedIds(new Set());
+                  try {
+                    await saveMasterList(updated);
+                    setCompanies(updated);
+                    setSelectedIds(new Set());
+                  } catch (err) {
+                    console.error('Failed to set tiers:', err);
+                  }
                   e.target.value = '';
                 }}
                 style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
@@ -810,11 +847,15 @@ function MasterList() {
             <button
               className="btn"
               style={{ color: '#ef4444', borderColor: '#ef4444' }}
-              onClick={() => {
+              onClick={async () => {
                 if (window.confirm(`Delete all ${companies.length} companies from the master list? This cannot be undone.`)) {
-                  saveMasterList([]);
-                  setCompanies([]);
-                  setSelectedIds(new Set());
+                  try {
+                    await saveMasterList([]);
+                    setCompanies([]);
+                    setSelectedIds(new Set());
+                  } catch (err) {
+                    console.error('Failed to delete all:', err);
+                  }
                 }
               }}
             >

@@ -6,7 +6,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import {
   getProspects, saveProspect, updateProspectStage, deleteProspect,
-  PROSPECT_STAGES, saveDeal,
+  PROSPECT_STAGES, saveDeal, getDeals,
 } from '../store/dataStore';
 import './Pages.css';
 
@@ -238,14 +238,26 @@ function Prospects() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    setProspects(getProspects());
+    async function loadData() {
+      try {
+        const data = await getProspects();
+        setProspects(data);
+      } catch (err) {
+        console.error('Failed to load prospects:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
   }, []);
 
   // DnD handlers
   const handleDragStart = (event) => setActiveId(event.active.id);
 
-  const handleDragEnd = (event) => {
+  const handleDragEnd = async (event) => {
     const { active, over } = event;
     setActiveId(null);
     if (!over) return;
@@ -262,41 +274,61 @@ function Prospects() {
     if (newStage) {
       const activeProspect = prospects.find(p => p.id === active.id);
       if (activeProspect && activeProspect.crmStage !== newStage) {
-        const updated = updateProspectStage(active.id, newStage);
-        setProspects(updated);
+        try {
+          await updateProspectStage(active.id, newStage);
+          const updated = await getProspects();
+          setProspects(updated);
+        } catch (err) {
+          console.error('Failed to update prospect stage:', err);
+        }
       }
     }
   };
 
   // CRUD
-  const handleAddProspect = (formData) => {
-    const updated = saveProspect(formData);
-    setProspects(updated);
-    setShowAddModal(false);
+  const handleAddProspect = async (formData) => {
+    try {
+      await saveProspect(formData);
+      const updated = await getProspects();
+      setProspects(updated);
+      setShowAddModal(false);
+    } catch (err) {
+      console.error('Failed to add prospect:', err);
+    }
   };
 
-  const handleDeleteProspect = (id) => {
-    const updated = deleteProspect(id);
-    setProspects(updated);
-    setSelectedProspect(null);
+  const handleDeleteProspect = async (id) => {
+    try {
+      await deleteProspect(id);
+      const updated = await getProspects();
+      setProspects(updated);
+      setSelectedProspect(null);
+    } catch (err) {
+      console.error('Failed to delete prospect:', err);
+    }
   };
 
-  const handleConvertToDeal = (prospect) => {
-    saveDeal({
-      clientName: prospect.organizationName,
-      contactName: prospect.contactName || '',
-      contactEmail: prospect.contactEmail || '',
-      stage: 'kickoff',
-    });
-    const updated = updateProspectStage(prospect.id, 'clients');
-    setProspects(updated);
-    setSelectedProspect(null);
-    navigate('/pipeline');
+  const handleConvertToDeal = async (prospect) => {
+    try {
+      await saveDeal({
+        clientName: prospect.organizationName,
+        contactName: prospect.contactName || '',
+        contactEmail: prospect.contactEmail || '',
+        stage: 'kickoff',
+      });
+      await updateProspectStage(prospect.id, 'clients');
+      setSelectedProspect(null);
+      navigate('/pipeline');
+    } catch (err) {
+      console.error('Failed to convert prospect to deal:', err);
+    }
   };
 
   const handleCardClick = (prospect) => setSelectedProspect(prospect);
 
   const activeProspect = prospects.find(p => p.id === activeId);
+
+  if (loading) return <div className="page fade-in"><p>Loading prospects...</p></div>;
 
   return (
     <div className="page fade-in">
@@ -385,10 +417,15 @@ function Prospects() {
         <ProspectDetailModal
           prospect={selectedProspect}
           onClose={() => setSelectedProspect(null)}
-          onSave={(data) => {
-            const updated = saveProspect({ ...selectedProspect, ...data });
-            setProspects(updated);
-            setSelectedProspect(null);
+          onSave={async (data) => {
+            try {
+              await saveProspect({ ...selectedProspect, ...data });
+              const updated = await getProspects();
+              setProspects(updated);
+              setSelectedProspect(null);
+            } catch (err) {
+              console.error('Failed to save prospect:', err);
+            }
           }}
           onDelete={handleDeleteProspect}
           onConvert={handleConvertToDeal}

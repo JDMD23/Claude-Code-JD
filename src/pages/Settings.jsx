@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Save, Download, Upload, Key, Shield, Zap, Wifi, WifiOff } from 'lucide-react';
 import { getSettings, saveSettings } from '../store/dataStore';
 import './Pages.css';
@@ -14,11 +14,35 @@ const EXPORT_KEYS = [
 ];
 
 function Settings() {
-  const [settings, setSettings] = useState(() => getSettings());
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [connStatus, setConnStatus] = useState(null); // null | 'testing' | 'ok' | 'error'
   const [connDetail, setConnDetail] = useState('');
   const importRef = useRef(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const data = await getSettings();
+        setSettings(data);
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+        setSettings({
+          proxyUrl: '',
+          proxySecret: '',
+          perplexityApiKey: '',
+          apolloApiKey: '',
+          exaApiKey: '',
+          firecrawlApiKey: '',
+          autoEnrich: false,
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const testConnection = async () => {
     if (!settings.proxyUrl) {
@@ -53,10 +77,15 @@ function Settings() {
     setSaved(false);
   };
 
-  const handleSave = () => {
-    saveSettings(settings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    try {
+      await saveSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      alert('Failed to save settings: ' + err.message);
+    }
   };
 
   const handleExport = () => {
@@ -112,6 +141,8 @@ function Settings() {
     // Reset file input
     if (importRef.current) importRef.current.value = '';
   };
+
+  if (loading || !settings) return <div className="page fade-in"><p>Loading settings...</p></div>;
 
   return (
     <div className="page fade-in">

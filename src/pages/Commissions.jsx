@@ -235,9 +235,24 @@ function Commissions() {
   const [editingCommission, setEditingCommission] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    setCommissions(getCommissions());
-    setDeals(getDeals());
+    async function loadData() {
+      try {
+        const [commissionsData, dealsData] = await Promise.all([
+          getCommissions(),
+          getDeals(),
+        ]);
+        setCommissions(commissionsData);
+        setDeals(dealsData);
+      } catch (err) {
+        console.error('Failed to load commissions:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
   }, []);
 
   // Calculate stats
@@ -262,23 +277,35 @@ function Commissions() {
       .reduce((sum, c) => sum + (c.calculatedAmount || 0), 0),
   };
 
-  const handleSave = (commissionData) => {
-    const updated = saveCommission(commissionData);
-    setCommissions(updated);
-    setShowModal(false);
-    setEditingCommission(null);
+  const handleSave = async (commissionData) => {
+    try {
+      await saveCommission(commissionData);
+      const updated = await getCommissions();
+      setCommissions(updated);
+      setShowModal(false);
+      setEditingCommission(null);
+    } catch (err) {
+      console.error('Failed to save commission:', err);
+    }
   };
 
-  const handleDelete = (id) => {
-    const updated = deleteCommission(id);
-    setCommissions(updated);
-    setShowModal(false);
-    setEditingCommission(null);
+  const handleDelete = async (id) => {
+    try {
+      await deleteCommission(id);
+      const updated = await getCommissions();
+      setCommissions(updated);
+      setShowModal(false);
+      setEditingCommission(null);
+    } catch (err) {
+      console.error('Failed to delete commission:', err);
+    }
   };
 
   const filteredCommissions = filterStatus === 'all'
     ? commissions
     : commissions.filter(c => c.status === filterStatus);
+
+  if (loading) return <div className="page fade-in"><p>Loading commissions...</p></div>;
 
   return (
     <div className="page fade-in">

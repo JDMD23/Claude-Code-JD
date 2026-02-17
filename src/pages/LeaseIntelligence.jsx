@@ -18,22 +18,44 @@ function LeaseIntelligence() {
   const [redlineRevised, setRedlineRevised] = useState('');
   const [redlineDiff, setRedlineDiff] = useState(null);
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    setClauses(getClauses());
+    async function loadData() {
+      try {
+        const data = await getClauses();
+        setClauses(data);
+      } catch (err) {
+        console.error('Failed to load clauses:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
   }, []);
 
-  const handleSave = (data) => {
-    const updated = saveClause(data);
-    setClauses(updated);
-    setShowModal(false);
-    setEditingClause(null);
+  const handleSave = async (data) => {
+    try {
+      await saveClause(data);
+      const updated = await getClauses();
+      setClauses(updated);
+      setShowModal(false);
+      setEditingClause(null);
+    } catch (err) {
+      console.error('Failed to save clause:', err);
+    }
   };
 
-  const handleDelete = (id) => {
-    const updated = deleteClause(id);
-    setClauses(updated);
-    setShowModal(false);
-    setEditingClause(null);
+  const handleDelete = async (id) => {
+    try {
+      await deleteClause(id);
+      const updated = await getClauses();
+      setClauses(updated);
+      setShowModal(false);
+      setEditingClause(null);
+    } catch (err) {
+      console.error('Failed to delete clause:', err);
+    }
   };
 
   const handleCopy = (text) => {
@@ -101,6 +123,8 @@ function LeaseIntelligence() {
     const removed = result.filter(r => r.type === 'removed' && r.text.trim()).length;
     setRedlineDiff({ segments: result, added, removed });
   };
+
+  if (loading) return <div className="page fade-in"><p>Loading clauses...</p></div>;
 
   return (
     <div className="page fade-in">

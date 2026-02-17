@@ -8,12 +8,22 @@ function ChatPanel({ isOpen, onClose, contextType = 'general', contextData = nul
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [hasProxy, setHasProxy] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   // Check if proxy is configured
-  const settings = getSettings();
-  const hasProxy = !!settings.proxyUrl;
+  useEffect(() => {
+    async function checkProxy() {
+      try {
+        const settings = await getSettings();
+        setHasProxy(!!settings.proxyUrl);
+      } catch {
+        setHasProxy(false);
+      }
+    }
+    if (isOpen) checkProxy();
+  }, [isOpen]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
