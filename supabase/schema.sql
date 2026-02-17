@@ -69,6 +69,27 @@ CREATE TABLE IF NOT EXISTS master_list (
   tier text DEFAULT '',
   dossier jsonb,
   "enrichedAt" text,
+  -- CSV enrichment fields
+  "headcountFilter" text DEFAULT '',
+  "careersUrl" text DEFAULT '',
+  "totalJobs" text DEFAULT '',
+  "nycJobs" text DEFAULT '',
+  "remoteJobs" text DEFAULT '',
+  "hybridJobs" text DEFAULT '',
+  "inOfficeJobs" text DEFAULT '',
+  "departmentsHiring" text DEFAULT '',
+  "workPolicyQuote" text DEFAULT '',
+  "nycOfficeConfirmed" text DEFAULT '',
+  "nycAddress" text DEFAULT '',
+  "excludeRemoteOnly" text DEFAULT '',
+  "prospectScore" text DEFAULT '',
+  "prospectStatus" text DEFAULT '',
+  "keyContacts" text DEFAULT '',
+  -- Research agent fields
+  "lastResearchedAt" text,
+  "hiringStatus" text DEFAULT '',
+  "investorScore" numeric,
+  "fundingScore" numeric,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
@@ -282,3 +303,27 @@ CREATE INDEX IF NOT EXISTS idx_follow_ups_user_id ON follow_ups(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_log_user_id ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_clauses_user_id ON clauses(user_id);
 CREATE INDEX IF NOT EXISTS idx_settings_user_id ON settings(user_id);
+
+-- ============================================================
+-- MIGRATION: Add missing master_list columns for CSV mapping
+-- Safe to run on existing databases (uses ADD COLUMN IF NOT EXISTS)
+-- ============================================================
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "headcountFilter" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "careersUrl" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "totalJobs" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "nycJobs" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "remoteJobs" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "hybridJobs" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "inOfficeJobs" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "departmentsHiring" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "workPolicyQuote" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "nycOfficeConfirmed" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "nycAddress" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "excludeRemoteOnly" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "prospectScore" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "prospectStatus" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "keyContacts" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "lastResearchedAt" text;
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "hiringStatus" text DEFAULT '';
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "investorScore" numeric;
+ALTER TABLE master_list ADD COLUMN IF NOT EXISTS "fundingScore" numeric;
