@@ -1,7 +1,7 @@
 .sidebar {
   width: var(--sidebar-width);
   height: 100vh;
-  background-color: var(--bg-secondary);
+  background-color: #161619;
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -87,17 +87,17 @@
 }
 
 .nav-item:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
 
 .nav-item.active {
-  background-color: var(--accent-primary);
-  color: white;
+  background-color: rgba(92, 124, 250, 0.12);
+  color: var(--accent-primary);
 }
 
 .nav-item.active .nav-icon {
-  color: white;
+  color: var(--accent-primary);
 }
 
 .nav-icon {
