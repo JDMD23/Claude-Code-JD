@@ -899,7 +899,7 @@ async function handleAgent(request, env) {
 
       // Send final result
       await sendSSE(writer, encoder, { type: 'result', data: dossier });
-      await sendSSE(writer, encoder, '[DONE]');
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       await sendSSE(writer, encoder, { type: 'error', message: err.message });
     } finally {

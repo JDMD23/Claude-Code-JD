@@ -128,11 +128,11 @@ function mapCompanyData(rawData) {
   return rawData.map(row => ({
     // Company Info
     organizationName: get(row, 'Organization Name', 'Company Name', 'Name'),
-    website: get(row, 'Website', 'URL'),
-    crunchbaseUrl: get(row, 'Organization Name URL', 'CrunchBase URL'),
+    website: get(row, 'Website', 'Homepage URL', 'Website URL', 'URL'),
+    crunchbaseUrl: get(row, 'Organization Name URL', 'CrunchBase URL', 'CB URL'),
     linkedin: get(row, 'LinkedIn', 'LinkedIn URL'),
     foundedYear: get(row, 'Founded Year', 'Founded Date', 'Founded'),
-    description: get(row, 'Description'),
+    description: get(row, 'Description', 'Short Description', 'Full Description'),
     headquarters: get(row, 'Headquarters Location', 'Headquarters', 'HQ'),
     industries: get(row, 'Industries'),
     founders: get(row, 'Founders'),
@@ -143,12 +143,12 @@ function mapCompanyData(rawData) {
     fundingRounds: get(row, 'Number of Funding Rounds', 'Funding Rounds'),
     lastFundingDate: get(row, 'Last Funding Date'),
     lastFundingType: get(row, 'Last Funding Type'),
-    lastFundingAmount: get(row, 'Last Funding (USD Short)', 'Last Funding Amount (in USD)', 'Last Funding Amount'),
-    totalFunding: get(row, 'Total Funding (USD Short)', 'Total Funding Amount (in USD)', 'Total Funding'),
-    cbRank: get(row, 'CB Rank (Company)', 'CB Rank'),
+    lastFundingAmount: get(row, 'Last Funding (USD Short)', 'Last Funding Amount (in USD)', 'Last Equity Funding Amount (in USD)', 'Last Funding Amount'),
+    totalFunding: get(row, 'Total Funding (USD Short)', 'Total Funding Amount (in USD)', 'Total Equity Funding Amount (in USD)', 'Total Funding'),
+    cbRank: get(row, 'CB Rank (Company)', 'CB Rank (Organization)', 'CB Rank'),
 
     // Enrichment Data
-    employeeCount: get(row, 'Employee Count', 'Employees', 'Size'),
+    employeeCount: get(row, 'Employee Count', 'Number of Employees', 'Employees', 'Size'),
     headcountFilter: get(row, 'Headcount Filter'),
     careersUrl: get(row, 'Careers URL'),
     totalJobs: get(row, 'Total Jobs'),
@@ -610,37 +610,39 @@ function MasterList() {
         console.log('Agent progress:', progress);
       }, company);
 
-      if (result) {
-        // Merge dossier into the company record + promote key fields to top level
-        const updatedCompanies = getMasterList().map(c => {
-          if (c.id === company.id) {
-            return {
-              ...c,
-              dossier: result,
-              lastResearchedAt: new Date().toISOString(),
-              // Merge dossier fields to top level (don't overwrite CSV data)
-              description: c.description || result.company?.description || '',
-              employeeCount: c.employeeCount || result.company?.employeeCount || '',
-              headquarters: c.headquarters || result.company?.headquarters || '',
-              nycAddress: c.nycAddress || result.nycAddress || '',
-              nycOfficeConfirmed: result.nycAddress ? 'Yes' : c.nycOfficeConfirmed || '',
-              hiringStatus: result.hiringIntel ? 'Active' : c.hiringStatus || '',
-              careersUrl: c.careersUrl || result.careersUrl || '',
-              // Scoring
-              investorScore: result.investorScore,
-              fundingScore: result.fundingScore,
-              prospectScore: (result.investorScore || 0) + (result.fundingScore || 0),
-            };
-          }
-          return c;
-        });
-        saveMasterList(updatedCompanies);
-        setCompanies(updatedCompanies);
-
-        // Refresh the selected company view
-        const refreshed = updatedCompanies.find(c => c.id === company.id);
-        if (refreshed) setSelectedCompany(refreshed);
+      if (!result) {
+        throw new Error('Agent returned no results. The worker may have timed out — check that your API keys (Perplexity, Apollo, etc.) are configured in Settings.');
       }
+
+      // Merge dossier into the company record + promote key fields to top level
+      const updatedCompanies = getMasterList().map(c => {
+        if (c.id === company.id) {
+          return {
+            ...c,
+            dossier: result,
+            lastResearchedAt: new Date().toISOString(),
+            // Merge dossier fields to top level (don't overwrite CSV data)
+            description: c.description || result.company?.description || '',
+            employeeCount: c.employeeCount || result.company?.employeeCount || '',
+            headquarters: c.headquarters || result.company?.headquarters || '',
+            nycAddress: c.nycAddress || result.nycAddress || '',
+            nycOfficeConfirmed: result.nycAddress ? 'Yes' : c.nycOfficeConfirmed || '',
+            hiringStatus: result.hiringIntel ? 'Active' : c.hiringStatus || '',
+            careersUrl: c.careersUrl || result.careersUrl || '',
+            // Scoring
+            investorScore: result.investorScore,
+            fundingScore: result.fundingScore,
+            prospectScore: (result.investorScore || 0) + (result.fundingScore || 0),
+          };
+        }
+        return c;
+      });
+      saveMasterList(updatedCompanies);
+      setCompanies(updatedCompanies);
+
+      // Refresh the selected company view
+      const refreshed = updatedCompanies.find(c => c.id === company.id);
+      if (refreshed) setSelectedCompany(refreshed);
 
       setAgentStatus('done');
       setTimeout(() => setAgentStatus(null), 2000);
