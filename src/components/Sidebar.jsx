@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
-  Settings
 } from 'lucide-react';
 import { useState } from 'react';
 import './Sidebar.css';

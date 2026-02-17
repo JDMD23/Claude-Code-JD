@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   FOLLOWUPS: 'dealflow_followups',
   ACTIVITY_LOG: 'dealflow_activity',
   SETTINGS: 'dealflow_settings',
+  CLAUSES: 'dealflow_clauses',
 };
 
 const DEFAULT_SETTINGS = {
@@ -610,15 +611,76 @@ export async function runResearchAgent(domain, onProgress = () => {}, companyDat
   return finalResult;
 }
 
-export async function sendChatMessage(messages) {
+// ============ CLAUSE LIBRARY ============
+export const CLAUSE_CATEGORIES = [
+  { id: 'rent', name: 'Rent & Economics' },
+  { id: 'renewals', name: 'Renewals & Options' },
+  { id: 'maintenance', name: 'Maintenance & Repairs' },
+  { id: 'termination', name: 'Termination & Default' },
+  { id: 'insurance', name: 'Insurance & Indemnity' },
+  { id: 'use', name: 'Use & Restrictions' },
+  { id: 'improvements', name: 'Tenant Improvements' },
+  { id: 'subletting', name: 'Assignment & Subletting' },
+  { id: 'cam', name: 'CAM & Operating Expenses' },
+  { id: 'other', name: 'Other' },
+];
+
+export function getClauses() {
+  return loadData(STORAGE_KEYS.CLAUSES);
+}
+
+export function saveClause(data) {
+  const clauses = getClauses();
+  if (data.id) {
+    const idx = clauses.findIndex(c => c.id === data.id);
+    if (idx !== -1) {
+      clauses[idx] = { ...clauses[idx], ...data, updatedAt: new Date().toISOString() };
+    }
+  } else {
+    clauses.unshift({
+      ...data,
+      id: uuidv4(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  saveData(STORAGE_KEYS.CLAUSES, clauses);
+  return clauses;
+}
+
+export function deleteClause(id) {
+  const clauses = getClauses().filter(c => c.id !== id);
+  saveData(STORAGE_KEYS.CLAUSES, clauses);
+  return clauses;
+}
+
+// ============ CHAT ============
+export function getChatContext(contextType, contextData) {
+  if (contextType === 'company' && contextData) {
+    return `You are helping a CRE broker research a company. Company: ${contextData.organizationName || 'Unknown'}. ${contextData.industry ? `Industry: ${contextData.industry}.` : ''} ${contextData.city ? `Location: ${contextData.city}, ${contextData.state || ''}.` : ''}`;
+  }
+  if (contextType === 'deal' && contextData) {
+    return `You are helping a CRE broker with a deal. Client: ${contextData.clientName || 'Unknown'}. Stage: ${contextData.stage || 'Unknown'}. ${contextData.propertyType ? `Property Type: ${contextData.propertyType}.` : ''} ${contextData.squareFeet ? `Size: ${contextData.squareFeet} SF.` : ''}`;
+  }
+  if (contextType === 'prospect' && contextData) {
+    return `You are helping a CRE broker with a prospect. Company: ${contextData.organizationName || 'Unknown'}. Status: ${contextData.prospectStatus || 'Unknown'}. ${contextData.crmStage ? `CRM Stage: ${contextData.crmStage}.` : ''}`;
+  }
+  return 'You are a helpful assistant for a commercial real estate broker. Help with deals, prospects, market research, and outreach.';
+}
+
+export async function sendChatMessage(messages, context) {
   const settings = getSettings();
   if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
+
+  const fullMessages = context
+    ? [{ role: 'system', content: context }, ...messages]
+    : messages;
 
   const res = await fetch(`${settings.proxyUrl}/chat`, {
     method: 'POST',
     headers: getProxyHeaders(),
     body: JSON.stringify({
-      messages,
+      messages: fullMessages,
       perplexityApiKey: settings.perplexityApiKey || '',
       apolloApiKey: settings.apolloApiKey || '',
       exaApiKey: settings.exaApiKey || '',
