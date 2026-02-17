@@ -419,6 +419,7 @@ Return ONLY valid JSON:
   "hybridJobs": <exact number>,
   "departments": ["dept1", "dept2"],
   "officeExpansionSignals": "<relevant quote or empty string>",
+  "jobSource": "<the one URL you counted jobs from>",
   "summary": "<1-2 sentence summary useful for a commercial real estate broker>"
 }`;
 
@@ -453,7 +454,13 @@ Return ONLY valid JSON:
   if (!careersPage) {
     const prompt = `I need hiring information for ${companyName} (${domain}) for a NYC commercial real estate broker.
 
-Find their PRIMARY careers page (their own website or their ATS platform like Greenhouse, Lever, or Ashby). Do NOT count jobs from LinkedIn, Indeed, Glassdoor, or other aggregators — those duplicate listings.
+Find their PRIMARY careers page — this means their own website's /careers page OR their ATS platform (Greenhouse, Lever, Ashby, Workable).
+
+CRITICAL DEDUP RULES:
+- Use ONLY ONE source for the job count. If you find listings on multiple platforms, use only the primary one (company website or their main ATS).
+- Do NOT count jobs from LinkedIn, Indeed, Glassdoor, ZipRecruiter, Wellfound, or any other aggregator.
+- If the same jobs appear on both their website and an ATS, count from the ATS (it's usually more accurate).
+- Report which source you used.
 
 Answer based on their primary careers source only:
 1. What is their careers page URL?
@@ -471,6 +478,7 @@ Return ONLY valid JSON:
   "departments": ["dept1", "dept2"],
   "officeExpansionSignals": "<relevant info or empty string>",
   "careersUrl": "<primary careers page URL>",
+  "jobSource": "<the one URL you counted jobs from>",
   "summary": "<1-2 sentence summary for a broker>"
 }`;
 
@@ -503,18 +511,48 @@ Return ONLY valid JSON:
 
 // Prompt 5E: Use Perplexity instead of Firecrawl for LinkedIn research
 async function generateFounderInsights(perplexityKey, founder) {
-  const prompt = `Research this person for a commercial real estate broker. Search for ${founder.name} on LinkedIn and analyze their career history.
+  const prompt = `Research this person thoroughly. I need their complete professional background for a commercial real estate broker evaluating their company.
 
 Name: ${founder.name}
 ${founder.title ? `Title: ${founder.title}` : ''}
 ${founder.linkedin ? `LinkedIn: ${founder.linkedin}` : ''}
 
-Return JSON:
+Research their career history and return ONLY valid JSON with these fields:
+
 {
-  "background": "2-3 sentence summary of career and expertise",
-  "previousCompanies": ["company1", "company2"],
-  "relevantInsights": "any real estate, expansion, or office-related insights"
-}`;
+  "tldr": "1-2 sentence summary of who they are and why they matter",
+  "careerHistory": [
+    {"company": "Company Name", "title": "Their Title", "years": "2020-2023", "notable": "brief note if notable company or role"}
+  ],
+  "education": [
+    {"school": "University Name", "degree": "Degree Type and Field", "year": "2015"}
+  ],
+  "previousStartups": [
+    {"name": "Startup Name", "role": "Founder/CEO", "outcome": "Acquired by X for $YM / Shut down / Still operating", "exitAmount": null}
+  ],
+  "bigTechExperience": [
+    {"company": "Google", "title": "Staff Engineer", "years": "2018-2022"}
+  ],
+  "talkingPoints": [
+    "Recent insight or activity worth mentioning in conversation"
+  ],
+  "pedigreeSignals": {
+    "hasExitOver50M": false,
+    "hasIPO": false,
+    "hasFAANGSenior": false,
+    "hasPriorStartup": false,
+    "bigTechCompanies": [],
+    "exitDetails": ""
+  }
+}
+
+For bigTechExperience, only include roles at: Google, Meta/Facebook, Apple, Amazon, Microsoft, Netflix, Stripe, OpenAI, Uber, Airbnb, Databricks, Snowflake, Coinbase, or similar tier companies.
+
+For pedigreeSignals.hasFAANGSenior, this means Director level, Staff Engineer level, or above at the companies listed above.
+
+For previousStartups, try to find exit amounts if they were acquisitions. If unknown, set exitAmount to null.
+
+Be accurate. If you cannot find information, use null or empty arrays. Do not fabricate career history.`;
 
   try {
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -539,18 +577,34 @@ Return JSON:
 
 // ============ SCORING ============
 
-// Tier 1 investor list (subset of top VCs)
 const TIER1_INVESTORS = [
-  'andreessen horowitz', 'a16z', 'sequoia', 'benchmark', 'greylock',
-  'accel', 'lightspeed', 'general catalyst', 'index ventures', 'kleiner perkins',
-  'bessemer', 'founders fund', 'ggv', 'insight partners', 'tiger global',
-  'coatue', 'softbank', 'y combinator', 'yc', 'nea',
+  'y combinator', 'yc', 'sequoia', 'sequoia capital',
+  'andreessen horowitz', 'a16z', 'accel',
+  'first round', 'first round capital',
+  'benchmark', 'kleiner perkins',
+  'lightspeed', 'lightspeed venture partners',
+  'general catalyst', 'founders fund',
+  'thrive capital', 'insight partners',
 ];
 
 const TIER2_INVESTORS = [
-  'battery ventures', 'canaan', 'first round', 'union square ventures', 'usv',
-  'ribbit', 'craft ventures', 'ivp', 'meritech', 'maverick',
-  'thrive', 'spark capital', 'redpoint', 'felicis', 'emergence',
+  'greylock', 'greylock partners',
+  'index ventures', 'bessemer', 'bessemer venture partners',
+  'khosla', 'khosla ventures',
+  'nea', 'new enterprise associates',
+  'boxgroup', 'initialized', 'initialized capital',
+  'ribbit', 'ribbit capital',
+  'pear vc', 'floodgate', 'sv angel', 'pioneer fund',
+];
+
+const TIER3_INVESTORS = [
+  'founder collective', 'cowboy ventures',
+  'forerunner', 'forerunner ventures',
+  'lux capital', '8vc',
+  'cyberstarts', 'yl ventures',
+  'soma capital', 'homebrew',
+  'antler', 'qed', 'qed investors',
+  'bonfire', 'bonfire ventures',
 ];
 
 function calculateInvestorScore(investorString) {
@@ -559,10 +613,11 @@ function calculateInvestorScore(investorString) {
 
   const hasTier1 = TIER1_INVESTORS.some(inv => lower.includes(inv));
   const hasTier2 = TIER2_INVESTORS.some(inv => lower.includes(inv));
+  const hasTier3 = TIER3_INVESTORS.some(inv => lower.includes(inv));
 
   if (hasTier1) return 3;
   if (hasTier2) return 2;
-  if (investorString.trim().length > 0) return 1;
+  if (hasTier3) return 1;
   return 0;
 }
 
@@ -582,10 +637,65 @@ function parseFundingAmount(amountStr) {
 
 function calculateFundingScore(fundingStr) {
   const amount = parseFundingAmount(fundingStr);
-  if (amount >= 50_000_000) return 3; // $50M+ = large, likely needs space
-  if (amount >= 10_000_000) return 2; // $10M-$50M = growing
-  if (amount > 0) return 1;           // Under $10M = early stage
+  if (amount >= 20_000_000) return 4; // $20M+ mega-seed / exceptional conviction
+  if (amount >= 10_000_000) return 3; // $10M-$19.9M large seed, strong institutional
+  if (amount >= 5_000_000) return 2;  // $5M-$9.9M solid seed, at or above median
+  if (amount >= 3_000_000) return 1;  // $3M-$4.9M standard seed, enough runway
+  return 0;                           // < $3M small seed / pre-seed
+}
+
+function calculateFounderPedigreeScore(founderInsights) {
+  // 3 = Serial founder with major exit (>$50M or IPO)
+  // 2 = Senior FAANG/Big Tech alumni (Director/Staff+)
+  // 1 = Second-time founder (prior startup, no major exit)
+  // 0 = First-time founder
+
+  if (!founderInsights || !founderInsights.pedigreeSignals) {
+    // Try to infer from career data if pedigreeSignals is missing
+    if (founderInsights?.previousStartups?.length > 0) {
+      const hasExit = founderInsights.previousStartups.some(s =>
+        s.outcome && /acqui|sold|ipo|public|exit/i.test(s.outcome)
+      );
+      if (hasExit) {
+        const bigExit = founderInsights.previousStartups.some(s =>
+          s.exitAmount && parseFundingAmount(String(s.exitAmount)) >= 50_000_000
+        );
+        return bigExit ? 3 : 1;
+      }
+      return 1;
+    }
+    if (founderInsights?.bigTechExperience?.length > 0) {
+      const isSenior = founderInsights.bigTechExperience.some(exp =>
+        /director|staff|principal|vp|head of|chief/i.test(exp.title || '')
+      );
+      return isSenior ? 2 : 0;
+    }
+    return 0;
+  }
+
+  const signals = founderInsights.pedigreeSignals;
+  if (signals.hasExitOver50M || signals.hasIPO) return 3;
+  if (signals.hasFAANGSenior) return 2;
+  if (signals.hasPriorStartup) return 1;
   return 0;
+}
+
+function getPedigreeReason(score, insights) {
+  if (score === 3) {
+    const exit = insights?.previousStartups?.find(s =>
+      s.outcome && /acqui|sold|ipo|public|exit/i.test(s.outcome)
+    );
+    return exit ? `Founded ${exit.name} (${exit.outcome})` : 'Serial founder with major exit';
+  }
+  if (score === 2) {
+    const exp = insights?.bigTechExperience?.[0];
+    return exp ? `${exp.title} at ${exp.company} (${exp.years})` : 'Senior Big Tech alumni';
+  }
+  if (score === 1) {
+    const startup = insights?.previousStartups?.[0];
+    return startup ? `Previously founded ${startup.name}` : 'Second-time founder';
+  }
+  return 'First-time founder';
 }
 
 async function generateOutreachEmail(perplexityKey, companyName, dossier, csvData = {}) {
@@ -726,6 +836,8 @@ async function handleAgent(request, env) {
         outreachEmail: '',
         investorScore: 0,
         fundingScore: 0,
+        founderScore: 0,
+        prospectScore: 0,
       };
 
       // STEP 1: Perplexity company overview + Apollo contacts
@@ -817,11 +929,23 @@ async function handleAgent(request, env) {
         const founderInsights = await Promise.all(
           dossier.founders.slice(0, 3).map(f => generateFounderInsights(keys.perplexity, f))
         );
-        dossier.founders = dossier.founders.map((f, i) => ({
-          ...f,
-          background: founderInsights[i]?.background || '',
-          previousCompanies: founderInsights[i]?.previousCompanies || [],
-        }));
+        dossier.founders = dossier.founders.map((f, i) => {
+          const insights = founderInsights[i] || {};
+          const pedigreeScore = calculateFounderPedigreeScore(insights);
+          return {
+            ...f,
+            tldr: insights.tldr || '',
+            background: insights.tldr || insights.background || '',
+            careerHistory: insights.careerHistory || [],
+            education: insights.education || [],
+            previousStartups: insights.previousStartups || [],
+            bigTechExperience: insights.bigTechExperience || [],
+            talkingPoints: insights.talkingPoints || [],
+            pedigreeScore,
+            pedigreeReason: getPedigreeReason(pedigreeScore, insights),
+            previousCompanies: insights.careerHistory?.map(c => c.company) || insights.previousCompanies || [],
+          };
+        });
       }
 
       // STEP 3: NYC address research
@@ -884,6 +1008,7 @@ async function handleAgent(request, env) {
           hybridJobs: hiringData.hybridJobs,
           departments: hiringData.departments || [],
           officeExpansionSignals: hiringData.officeExpansionSignals || '',
+          jobSource: hiringData.jobSource || hiringData.careersUrl || '',
         };
       } else if (careersPage) {
         // Firecrawl found a page but analysis failed
@@ -895,18 +1020,27 @@ async function handleAgent(request, env) {
       await progress(6, 'Generating outreach email...');
       dossier.outreachEmail = await generateOutreachEmail(keys.perplexity, companyName, dossier, csvData);
 
-      // STEP 7: Scorecard (Prompt 2C.5)
-      await progress(7, 'Calculating scores...');
+      // STEP 7: Scorecard
+      await progress(7, 'Calculating prospect score...');
 
-      // Use CSV investors first for scoring
+      // Funding score (0-4) — use lastFundingAmount (most recent round signal)
+      const fundingSource = csvData.lastFundingAmount || dossier.funding.lastFundingAmount ||
+                            csvData.totalFunding || dossier.funding.totalFunding || '';
+      dossier.fundingScore = calculateFundingScore(fundingSource);
+
+      // Investor score (0-3) — use updated 3-tier system
       const investorSource = csvData.topInvestors || csvData.leadInvestors ||
                              dossier.funding.topInvestors || dossier.funding.leadInvestors || '';
       dossier.investorScore = calculateInvestorScore(investorSource);
 
-      // Use CSV funding first for scoring
-      const fundingSource = csvData.lastFundingAmount || csvData.totalFunding ||
-                            dossier.funding.lastFundingAmount || dossier.funding.totalFunding || '';
-      dossier.fundingScore = calculateFundingScore(fundingSource);
+      // Founder pedigree score (0-3) — highest score among all founders
+      dossier.founderScore = Math.max(
+        0,
+        ...dossier.founders.map(f => f.pedigreeScore || 0)
+      );
+
+      // Total prospect score (0-10)
+      dossier.prospectScore = dossier.fundingScore + dossier.investorScore + dossier.founderScore;
 
       // Send final result
       await sendSSE(writer, encoder, { type: 'result', data: dossier });
