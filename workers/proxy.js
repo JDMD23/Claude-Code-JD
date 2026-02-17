@@ -419,6 +419,7 @@ Return ONLY valid JSON:
   "hybridJobs": <exact number>,
   "departments": ["dept1", "dept2"],
   "officeExpansionSignals": "<relevant quote or empty string>",
+  "jobSource": "<the one URL you counted jobs from>",
   "summary": "<1-2 sentence summary useful for a commercial real estate broker>"
 }`;
 
@@ -453,7 +454,13 @@ Return ONLY valid JSON:
   if (!careersPage) {
     const prompt = `I need hiring information for ${companyName} (${domain}) for a NYC commercial real estate broker.
 
-Find their PRIMARY careers page (their own website or their ATS platform like Greenhouse, Lever, or Ashby). Do NOT count jobs from LinkedIn, Indeed, Glassdoor, or other aggregators — those duplicate listings.
+Find their PRIMARY careers page — this means their own website's /careers page OR their ATS platform (Greenhouse, Lever, Ashby, Workable).
+
+CRITICAL DEDUP RULES:
+- Use ONLY ONE source for the job count. If you find listings on multiple platforms, use only the primary one (company website or their main ATS).
+- Do NOT count jobs from LinkedIn, Indeed, Glassdoor, ZipRecruiter, Wellfound, or any other aggregator.
+- If the same jobs appear on both their website and an ATS, count from the ATS (it's usually more accurate).
+- Report which source you used.
 
 Answer based on their primary careers source only:
 1. What is their careers page URL?
@@ -471,6 +478,7 @@ Return ONLY valid JSON:
   "departments": ["dept1", "dept2"],
   "officeExpansionSignals": "<relevant info or empty string>",
   "careersUrl": "<primary careers page URL>",
+  "jobSource": "<the one URL you counted jobs from>",
   "summary": "<1-2 sentence summary for a broker>"
 }`;
 
@@ -828,6 +836,8 @@ async function handleAgent(request, env) {
         outreachEmail: '',
         investorScore: 0,
         fundingScore: 0,
+        founderScore: 0,
+        prospectScore: 0,
       };
 
       // STEP 1: Perplexity company overview + Apollo contacts
@@ -919,11 +929,23 @@ async function handleAgent(request, env) {
         const founderInsights = await Promise.all(
           dossier.founders.slice(0, 3).map(f => generateFounderInsights(keys.perplexity, f))
         );
-        dossier.founders = dossier.founders.map((f, i) => ({
-          ...f,
-          background: founderInsights[i]?.background || '',
-          previousCompanies: founderInsights[i]?.previousCompanies || [],
-        }));
+        dossier.founders = dossier.founders.map((f, i) => {
+          const insights = founderInsights[i] || {};
+          const pedigreeScore = calculateFounderPedigreeScore(insights);
+          return {
+            ...f,
+            tldr: insights.tldr || '',
+            background: insights.tldr || insights.background || '',
+            careerHistory: insights.careerHistory || [],
+            education: insights.education || [],
+            previousStartups: insights.previousStartups || [],
+            bigTechExperience: insights.bigTechExperience || [],
+            talkingPoints: insights.talkingPoints || [],
+            pedigreeScore,
+            pedigreeReason: getPedigreeReason(pedigreeScore, insights),
+            previousCompanies: insights.careerHistory?.map(c => c.company) || insights.previousCompanies || [],
+          };
+        });
       }
 
       // STEP 3: NYC address research
@@ -986,6 +1008,7 @@ async function handleAgent(request, env) {
           hybridJobs: hiringData.hybridJobs,
           departments: hiringData.departments || [],
           officeExpansionSignals: hiringData.officeExpansionSignals || '',
+          jobSource: hiringData.jobSource || hiringData.careersUrl || '',
         };
       } else if (careersPage) {
         // Firecrawl found a page but analysis failed
@@ -997,18 +1020,27 @@ async function handleAgent(request, env) {
       await progress(6, 'Generating outreach email...');
       dossier.outreachEmail = await generateOutreachEmail(keys.perplexity, companyName, dossier, csvData);
 
-      // STEP 7: Scorecard (Prompt 2C.5)
-      await progress(7, 'Calculating scores...');
+      // STEP 7: Scorecard
+      await progress(7, 'Calculating prospect score...');
 
-      // Use CSV investors first for scoring
+      // Funding score (0-4) — use lastFundingAmount (most recent round signal)
+      const fundingSource = csvData.lastFundingAmount || dossier.funding.lastFundingAmount ||
+                            csvData.totalFunding || dossier.funding.totalFunding || '';
+      dossier.fundingScore = calculateFundingScore(fundingSource);
+
+      // Investor score (0-3) — use updated 3-tier system
       const investorSource = csvData.topInvestors || csvData.leadInvestors ||
                              dossier.funding.topInvestors || dossier.funding.leadInvestors || '';
       dossier.investorScore = calculateInvestorScore(investorSource);
 
-      // Use CSV funding first for scoring
-      const fundingSource = csvData.lastFundingAmount || csvData.totalFunding ||
-                            dossier.funding.lastFundingAmount || dossier.funding.totalFunding || '';
-      dossier.fundingScore = calculateFundingScore(fundingSource);
+      // Founder pedigree score (0-3) — highest score among all founders
+      dossier.founderScore = Math.max(
+        0,
+        ...dossier.founders.map(f => f.pedigreeScore || 0)
+      );
+
+      // Total prospect score (0-10)
+      dossier.prospectScore = dossier.fundingScore + dossier.investorScore + dossier.founderScore;
 
       // Send final result
       await sendSSE(writer, encoder, { type: 'result', data: dossier });
