@@ -50,7 +50,7 @@ function Dashboard() {
     }
   }
 
-  if (loading || !stats) return <div className="page fade-in"><p>Loading dashboard...</p></div>;
+  if (loading || !stats) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading...</div>;
 
   const followUpsDue = stats.followUps.overdue + stats.followUps.today;
   const priorities = [
