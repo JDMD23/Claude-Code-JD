@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://JDMD23.github.io/NormanCRE",
+  "homepage": "https://JDMD23.github.io/Claude-Code-JD",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
