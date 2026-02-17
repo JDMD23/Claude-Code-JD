@@ -62,7 +62,6 @@ export async function getSettings() {
 export async function saveSettings(settings) {
   const userId = await getUserId();
   const merged = { ...DEFAULT_SETTINGS, ...settings };
-  delete merged.tavilyApiKey;
 
   const payload = {
     user_id: userId,
@@ -276,6 +275,18 @@ export async function addToMasterList(companies) {
   await logActivity('companies_imported', `${added.length} companies imported to Master List (${skipped} duplicates skipped)`);
   const updated = await getMasterList();
   return { companies: updated, added: added.length, skipped };
+}
+
+export async function updateMasterListItem(id, updates) {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('master_list')
+    .update({ ...updates, updated_at: now })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function deleteCompaniesFromMasterList(companyIds) {
