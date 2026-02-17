@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, ChevronLeft, ChevronRight, Play, Loader, Plus, Globe, Newspaper, Mail, Copy, UserCheck, MapPin, Award } from 'lucide-react';
+import { Upload, Search, Filter, X, Users, Building2, DollarSign, Briefcase, ExternalLink, Check, ChevronDown, ChevronLeft, ChevronRight, Play, Loader, Plus, Globe, Newspaper, Mail, Copy, UserCheck, MapPin, Award, Trash2 } from 'lucide-react';
 import { getMasterList, addToMasterList, saveMasterList, saveProspect, getProspects, PROSPECT_STAGES, runResearchAgent, getSettings } from '../store/dataStore';
 import './Pages.css';
 import './DealPipeline.css';
@@ -806,6 +806,22 @@ function MasterList() {
             <Upload size={18} />
             Import CSV
           </button>
+          {companies.length > 0 && (
+            <button
+              className="btn"
+              style={{ color: '#ef4444', borderColor: '#ef4444' }}
+              onClick={() => {
+                if (window.confirm(`Delete all ${companies.length} companies from the master list? This cannot be undone.`)) {
+                  saveMasterList([]);
+                  setCompanies([]);
+                  setSelectedIds(new Set());
+                }
+              }}
+            >
+              <Trash2 size={18} />
+              Delete All
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"
