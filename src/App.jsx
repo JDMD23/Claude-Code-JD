@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
 import MainLayout from './layouts/MainLayout';
 import Dashboard from './pages/Dashboard';
 import DealPipeline from './pages/DealPipeline';
@@ -7,8 +8,29 @@ import MasterList from './pages/MasterList';
 import LeaseIntelligence from './pages/LeaseIntelligence';
 import Commissions from './pages/Commissions';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
 
 function App() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'var(--bg-primary)',
+        color: 'var(--text-secondary)',
+        fontSize: '0.9rem',
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) return <Login />;
+
   return (
     <MainLayout>
       <Routes>

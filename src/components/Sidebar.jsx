@@ -10,8 +10,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
+  LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import './Sidebar.css';
 
 const navItems = [
@@ -26,6 +28,7 @@ const navItems = [
 
 function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const { signOut } = useAuth();
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -59,9 +62,10 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        {!collapsed && (
-          <p className="version-text">v1.0.0</p>
-        )}
+        <button className="sign-out-btn" onClick={signOut}>
+          <LogOut size={16} strokeWidth={1.5} />
+          {!collapsed && <span>Sign Out</span>}
+        </button>
       </div>
     </aside>
   );
