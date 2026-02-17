@@ -1,70 +1,65 @@
-import { useState, useEffect } from 'react';
-import { TrendingUp, Users, DollarSign, Bell, Kanban, Clock, ArrowRight, Activity, AlertTriangle, CheckCircle2, Building2, Gauge, Timer, Target, AlertCircle, Zap } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { getDashboardStats, getPipelineVelocity, DEAL_STAGES } from '../store/dataStore';
+import { useState, useEffect, useCallback } from 'react';
+import { TrendingUp, Users, DollarSign, Bell, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { getDashboardStats, completeFollowUp, DEAL_STAGES } from '../store/dataStore';
 import './Pages.css';
-import './Dashboard.css';
 
 function formatCurrency(amount) {
-  if (!amount) return '$0';
-  if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
-  if (amount >= 1000) return `$${(amount / 1000).toFixed(0)}K`;
-  return `$${amount.toLocaleString()}`;
+  return '$' + Math.round(amount).toLocaleString();
 }
 
 function timeAgo(dateStr) {
-  const date = new Date(dateStr);
   const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+  const date = new Date(dateStr);
+  const seconds = Math.floor((now - date) / 1000);
 
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return 'yesterday';
-  return `${diffDays}d ago`;
-}
-
-function getActivityIcon(type) {
-  switch (type) {
-    case 'deal_created': return <Kanban size={14} strokeWidth={1.5} />;
-    case 'deal_moved': return <ArrowRight size={14} strokeWidth={1.5} />;
-    case 'prospect_added': return <Users size={14} strokeWidth={1.5} />;
-    case 'prospect_moved': return <ArrowRight size={14} strokeWidth={1.5} />;
-    case 'commission_added': return <DollarSign size={14} strokeWidth={1.5} />;
-    case 'companies_imported': return <Building2 size={14} strokeWidth={1.5} />;
-    case 'followup_completed': return <CheckCircle2 size={14} strokeWidth={1.5} />;
-    default: return <Activity size={14} strokeWidth={1.5} />;
-  }
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
 }
 
 function Dashboard() {
   const [stats, setStats] = useState(null);
-  const [velocity, setVelocity] = useState(null);
-  const navigate = useNavigate();
 
-  useEffect(() => {
+  const loadStats = useCallback(() => {
     setStats(getDashboardStats());
-    setVelocity(getPipelineVelocity());
   }, []);
 
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  function handleComplete(id) {
+    completeFollowUp(id);
+    loadStats();
+  }
+
   if (!stats) return null;
+
+  const followUpsDue = stats.followUps.overdue + stats.followUps.today;
+  const priorities = [
+    ...stats.followUps.overdueList.map(f => ({ ...f, isOverdue: true })),
+    ...stats.followUps.todayList.map(f => ({ ...f, isOverdue: false })),
+  ];
 
   return (
     <div className="page fade-in">
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p>Your deal pipeline at a glance</p>
+          <p>Welcome back! Here's an overview of your business.</p>
         </div>
       </div>
 
+      {/* Stat Cards */}
       <div className="stats-grid">
-        <div className="stat-card" onClick={() => navigate('/pipeline')} style={{ cursor: 'pointer' }}>
+        <div className="stat-card">
           <div className="stat-icon blue">
-            <TrendingUp size={24} strokeWidth={1.5} />
+            <TrendingUp size={24} />
           </div>
           <div className="stat-content">
             <p className="stat-label">Active Deals</p>
@@ -72,9 +67,9 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="stat-card" onClick={() => navigate('/prospects')} style={{ cursor: 'pointer' }}>
+        <div className="stat-card">
           <div className="stat-icon teal">
-            <Users size={24} strokeWidth={1.5} />
+            <Users size={24} />
           </div>
           <div className="stat-content">
             <p className="stat-label">Prospects</p>
@@ -82,9 +77,9 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="stat-card" onClick={() => navigate('/commissions')} style={{ cursor: 'pointer' }}>
+        <div className="stat-card">
           <div className="stat-icon green">
-            <DollarSign size={24} strokeWidth={1.5} />
+            <DollarSign size={24} />
           </div>
           <div className="stat-content">
             <p className="stat-label">Pipeline Value</p>
@@ -94,259 +89,117 @@ function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-icon yellow">
-            <Bell size={24} strokeWidth={1.5} />
+            <Bell size={24} />
           </div>
           <div className="stat-content">
             <p className="stat-label">Follow-ups Due</p>
-            <p className="stat-value">{stats.followUps.overdue + stats.followUps.today}</p>
+            <p className="stat-value">{followUpsDue}</p>
           </div>
         </div>
       </div>
 
-      {/* Proactive Alerts Section */}
-      {(stats.staleDeals?.length > 0 || stats.attentionDeals?.length > 0) && (
-        <div className="alerts-section">
-          <h3 className="alerts-header">
-            <Zap size={18} strokeWidth={1.5} />
-            Needs Your Attention
-          </h3>
-          <div className="alerts-grid">
-            {stats.staleDeals?.slice(0, 3).map(deal => (
-              <div
-                key={deal.id}
-                className="alert-card stale"
-                onClick={() => navigate('/pipeline')}
-              >
-                <div className="alert-icon">
-                  <AlertTriangle size={16} strokeWidth={2} />
-                </div>
-                <div className="alert-content">
-                  <span className="alert-title">{deal.clientName}</span>
-                  <span className="alert-detail">
-                    Stuck in <strong>{deal.stageName}</strong> for {deal.daysInStage} days
-                  </span>
-                  <span className="alert-action">
-                    {deal.overBy} days overdue — needs movement
-                  </span>
-                </div>
-              </div>
-            ))}
-            {stats.attentionDeals?.slice(0, 2).map(deal => (
-              <div
-                key={deal.id}
-                className="alert-card warning"
-                onClick={() => navigate('/pipeline')}
-              >
-                <div className="alert-icon">
-                  <AlertCircle size={16} strokeWidth={2} />
-                </div>
-                <div className="alert-content">
-                  <span className="alert-title">{deal.clientName}</span>
-                  <span className="alert-detail">
-                    In <strong>{deal.stageName}</strong> for {deal.daysInStage} days
-                  </span>
-                  <span className="alert-action">
-                    Will go stale in {deal.daysUntilStale} days
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* Main Grid */}
       <div className="dashboard-grid">
-        {/* Pipeline Snapshot */}
-        <div className="card dash-card">
-          <div className="dash-card-header">
-            <h3>Pipeline Snapshot</h3>
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/pipeline')}>
-              View All <ArrowRight size={14} strokeWidth={1.5} />
-            </button>
-          </div>
-          {stats.deals.total === 0 ? (
+        {/* Today's Priorities */}
+        <div className="card">
+          <h3>Today's Priorities</h3>
+          {priorities.length === 0 ? (
             <div className="empty-state">
-              <p>No deals yet. Add your first deal in the Pipeline.</p>
+              <p>No follow-ups due — you're all caught up</p>
             </div>
           ) : (
-            <div className="pipeline-snapshot">
-              {DEAL_STAGES.map(stage => {
-                const count = stats.deals.byStage[stage.id] || 0;
-                const pct = stats.deals.total > 0 ? (count / stats.deals.total) * 100 : 0;
-                return (
-                  <div key={stage.id} className="pipeline-row">
-                    <span className="pipeline-stage-name">{stage.name}</span>
-                    <div className="pipeline-bar-track">
-                      <div className="pipeline-bar-fill" style={{ width: `${Math.max(pct, count > 0 ? 8 : 0)}%` }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 0' }}>
+              {priorities.map(f => (
+                <div key={f.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  padding: '0.625rem 0.75rem',
+                  backgroundColor: f.isOverdue ? 'rgba(239,68,68,0.06)' : 'var(--bg-tertiary)',
+                  borderRadius: 'var(--radius-md)',
+                  borderLeft: f.isOverdue ? '3px solid var(--status-red)' : '3px solid var(--accent-primary)',
+                }}>
+                  {f.isOverdue
+                    ? <AlertTriangle size={16} style={{ color: 'var(--status-red)', flexShrink: 0 }} />
+                    : <Clock size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                      {f.companyName || 'Unknown'}
                     </div>
-                    <span className="pipeline-count mono">{count}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Commission Summary */}
-        <div className="card dash-card">
-          <div className="dash-card-header">
-            <h3>Commissions</h3>
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/commissions')}>
-              View All <ArrowRight size={14} strokeWidth={1.5} />
-            </button>
-          </div>
-          <div className="commission-summary">
-            <div className="commission-row">
-              <span className="commission-label">Projected</span>
-              <span className="commission-amount mono">{formatCurrency(stats.commissions.projected)}</span>
-            </div>
-            <div className="commission-row">
-              <span className="commission-label">Closed</span>
-              <span className="commission-amount mono">{formatCurrency(stats.commissions.closed)}</span>
-            </div>
-            <div className="commission-row highlight">
-              <span className="commission-label">Paid</span>
-              <span className="commission-amount mono">{formatCurrency(stats.commissions.paid)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Pipeline Velocity */}
-        <div className="card dash-card">
-          <div className="dash-card-header">
-            <h3>Pipeline Velocity</h3>
-          </div>
-          {!velocity ? (
-            <div className="empty-state">
-              <p>Add deals and move them through stages to see velocity metrics.</p>
-            </div>
-          ) : (
-            <div className="velocity-metrics">
-              <div className="velocity-kpis">
-                <div className="velocity-kpi">
-                  <Timer size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
-                  <div>
-                    <span className="velocity-kpi-value mono">{velocity.avgCycleTime !== null ? `${velocity.avgCycleTime}d` : '--'}</span>
-                    <span className="velocity-kpi-label">Avg Cycle</span>
-                  </div>
-                </div>
-                <div className="velocity-kpi">
-                  <Target size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
-                  <div>
-                    <span className="velocity-kpi-value mono">{velocity.winRate}%</span>
-                    <span className="velocity-kpi-label">Win Rate</span>
-                  </div>
-                </div>
-                <div className="velocity-kpi">
-                  <Gauge size={16} strokeWidth={1.5} className="velocity-kpi-icon" />
-                  <div>
-                    <span className="velocity-kpi-value mono">{velocity.closedDeals}/{velocity.totalDeals}</span>
-                    <span className="velocity-kpi-label">Closed</span>
-                  </div>
-                </div>
-              </div>
-              <div className="velocity-stages">
-                {DEAL_STAGES.map((stage, idx) => {
-                  const avgDays = velocity.avgDaysPerStage[stage.id];
-                  const conversion = velocity.conversionByStage[stage.id];
-                  if (idx === DEAL_STAGES.length - 1) return null;
-                  return (
-                    <div key={stage.id} className="velocity-stage-row">
-                      <span className="velocity-stage-name">{stage.name}</span>
-                      <div className="velocity-stage-stats">
-                        {avgDays !== null && (
-                          <span className="velocity-stat mono">{avgDays}d avg</span>
-                        )}
-                        {conversion !== null && (
-                          <span className={`velocity-conversion ${conversion >= 50 ? 'good' : 'low'}`}>{conversion}%</span>
-                        )}
-                      </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {f.contactName ? `${f.contactName} · ` : ''}
+                      {f.dueDate ? new Date(f.dueDate).toLocaleDateString() : ''}
+                      {f.isOverdue && <span style={{ color: 'var(--status-red)', marginLeft: '0.35rem' }}>Overdue</span>}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Follow-ups */}
-        <div className="card dash-card">
-          <div className="dash-card-header">
-            <h3>Follow-ups</h3>
-          </div>
-          {stats.followUps.overdue === 0 && stats.followUps.today === 0 && stats.followUps.thisWeek === 0 ? (
-            <div className="empty-state">
-              <p>No follow-ups scheduled</p>
-            </div>
-          ) : (
-            <div className="followup-summary">
-              {stats.followUps.overdue > 0 && (
-                <div className="followup-group overdue">
-                  <div className="followup-group-header">
-                    <AlertTriangle size={14} strokeWidth={1.5} />
-                    <span>Overdue</span>
-                    <span className="followup-count">{stats.followUps.overdue}</span>
                   </div>
-                  {stats.followUps.overdueList.map(f => (
-                    <div key={f.id} className="followup-item">
-                      <span>{f.companyName || 'Unnamed'}</span>
-                      <span className="text-muted">{f.note?.slice(0, 40)}</span>
-                    </div>
-                  ))}
+                  <button
+                    className="icon-btn"
+                    title="Mark complete"
+                    onClick={() => handleComplete(f.id)}
+                  >
+                    <CheckCircle size={18} />
+                  </button>
                 </div>
-              )}
-              {stats.followUps.today > 0 && (
-                <div className="followup-group today">
-                  <div className="followup-group-header">
-                    <Clock size={14} strokeWidth={1.5} />
-                    <span>Today</span>
-                    <span className="followup-count">{stats.followUps.today}</span>
-                  </div>
-                  {stats.followUps.todayList.map(f => (
-                    <div key={f.id} className="followup-item">
-                      <span>{f.companyName || 'Unnamed'}</span>
-                      <span className="text-muted">{f.note?.slice(0, 40)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {stats.followUps.thisWeek > 0 && (
-                <div className="followup-group">
-                  <div className="followup-group-header">
-                    <Clock size={14} strokeWidth={1.5} />
-                    <span>This Week</span>
-                    <span className="followup-count">{stats.followUps.thisWeek}</span>
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
           )}
         </div>
 
         {/* Recent Activity */}
-        <div className="card dash-card">
-          <div className="dash-card-header">
-            <h3>Recent Activity</h3>
-          </div>
+        <div className="card">
+          <h3>Recent Activity</h3>
           {stats.recentActivity.length === 0 ? (
             <div className="empty-state">
-              <p>No activity yet. Start by adding deals or importing companies.</p>
+              <p>No recent activity to show</p>
             </div>
           ) : (
-            <div className="activity-feed">
-              {stats.recentActivity.map(item => (
-                <div key={item.id} className="activity-item">
-                  <div className="activity-icon">
-                    {getActivityIcon(item.type)}
-                  </div>
-                  <div className="activity-content">
-                    <span className="activity-message">{item.message}</span>
-                    <span className="activity-time">{timeAgo(item.timestamp)}</span>
-                  </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.75rem 0' }}>
+              {stats.recentActivity.map(a => (
+                <div key={a.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                  padding: '0.5rem 0',
+                  borderBottom: '1px solid var(--border-color)',
+                  fontSize: '0.85rem',
+                }}>
+                  <span style={{ color: 'var(--text-primary)' }}>{a.message}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap', marginLeft: '1rem' }}>
+                    {timeAgo(a.timestamp)}
+                  </span>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Pipeline by Stage */}
+      <div className="card" style={{ marginTop: '1.5rem' }}>
+        <h3>Pipeline by Stage</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 0' }}>
+          {DEAL_STAGES.map(stage => {
+            const count = stats.deals.byStage[stage.id] || 0;
+            const maxCount = Math.max(1, ...Object.values(stats.deals.byStage));
+            const pct = (count / maxCount) * 100;
+            return (
+              <div key={stage.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ width: '180px', flexShrink: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {stage.name}
+                </span>
+                <div style={{ flex: 1, height: '20px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                  {count > 0 && (
+                    <div style={{
+                      width: `${pct}%`, height: '100%',
+                      backgroundColor: 'var(--accent-primary)',
+                      borderRadius: 'var(--radius-sm)',
+                      transition: 'width 0.3s ease',
+                      minWidth: count > 0 ? '24px' : 0,
+                    }} />
+                  )}
+                </div>
+                <span style={{ width: '28px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {count}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

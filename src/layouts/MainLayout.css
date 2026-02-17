@@ -6,8 +6,8 @@
 .main-content {
   flex: 1;
   margin-left: var(--sidebar-width);
-  padding: clamp(1.5rem, 4vw, 3rem) clamp(2rem, 6vw, 4rem);
-  transition: margin-left var(--duration-normal) var(--ease-out);
+  padding: 2.5rem;
+  transition: margin-left 0.3s ease;
   min-height: 100vh;
   background-color: var(--bg-primary);
 }
@@ -16,43 +16,4 @@
 .sidebar.collapsed ~ .main-content,
 .main-layout:has(.sidebar.collapsed) .main-content {
   margin-left: var(--sidebar-collapsed);
-}
-
-/* Floating Chat Button */
-.chat-fab {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: var(--accent-color);
-  color: white;
-  border: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  z-index: 900;
-}
-
-.chat-fab:hover {
-  background: var(--accent-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-}
-
-.chat-fab:active {
-  transform: translateY(0);
-}
-
-@media (max-width: 768px) {
-  .chat-fab {
-    bottom: 16px;
-    right: 16px;
-    width: 52px;
-    height: 52px;
-  }
 }

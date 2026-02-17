@@ -1,28 +1,25 @@
 // DealFlow Data Store - Persists to localStorage
 import { v4 as uuidv4 } from 'uuid';
 
-// Research Agent step descriptions for progress UI
-export const AGENT_STEPS = [
-  { step: 1, label: 'Company Overview', description: 'Gathering company info from Perplexity + Apollo' },
-  { step: 2, label: 'Decision Makers', description: 'Finding key contacts for office space decisions' },
-  { step: 3, label: 'Founder Due Diligence', description: 'Researching founder backgrounds & pedigree scoring' },
-  { step: 4, label: 'NYC Address Search', description: 'Deep search for exact NYC office address' },
-  { step: 5, label: 'Recent News', description: 'Searching for recent office/lease news' },
-  { step: 6, label: 'Hiring Intelligence', description: 'Scraping careers page with Firecrawl for job listings' },
-  { step: 7, label: 'Outreach Email', description: 'Generating personalized cold email' },
-  { step: 8, label: 'Prospect Scorecard', description: 'Calculating funding, investor & founder scores' },
-];
-
 const STORAGE_KEYS = {
   DEALS: 'dealflow_deals',
   PROSPECTS: 'dealflow_prospects',
   MASTER_LIST: 'dealflow_master_list',
   COMMISSIONS: 'dealflow_commissions',
-  FOLLOWUPS: 'dealflow_followups',
   CONTACTS: 'dealflow_contacts',
+  FOLLOWUPS: 'dealflow_followups',
   ACTIVITY_LOG: 'dealflow_activity',
-  LEASES: 'dealflow_leases',
   SETTINGS: 'dealflow_settings',
+};
+
+const DEFAULT_SETTINGS = {
+  proxyUrl: '',
+  proxySecret: '',
+  perplexityApiKey: '',
+  apolloApiKey: '',
+  exaApiKey: '',
+  firecrawlApiKey: '',
+  autoEnrich: false,
 };
 
 // Helper to load from localStorage
@@ -53,8 +50,6 @@ export const DEAL_STAGES = [
   { id: 'negotiation', name: 'Lease Negotiation' },
   { id: 'consent', name: 'Consent' },
   { id: 'closed', name: 'Closed' },
-  { id: 'on_hold', name: 'On Hold' },
-  { id: 'lost', name: 'Lost' },
 ];
 
 // Prospect CRM Stages
@@ -66,33 +61,29 @@ export const PROSPECT_STAGES = [
   { id: 'secondary', name: 'Secondary Prospects' },
 ];
 
-// Company Research Status (for Master List workflow)
-export const COMPANY_STATUSES = [
-  { id: 'new', name: 'New', color: '#6b7280' },
-  { id: 'researching', name: 'Researching', color: '#3b82f6' },
-  { id: 'contacting', name: 'Contacting', color: '#f59e0b' },
-  { id: 'meeting', name: 'Meeting Scheduled', color: '#8b5cf6' },
-  { id: 'not_a_fit', name: 'Not a Fit', color: '#ef4444' },
-];
-
-// Prospect Tiers for Master List segmentation
-export const PROSPECT_TIERS = [
-  { id: 'tier_1_nyc_seed', name: 'NYC Seed ($4M+)', color: '#22c55e' },
-  { id: 'tier_2_nyc_growth', name: 'NYC Growth (A/B)', color: '#3b82f6' },
-  { id: 'tier_3_sf_expansion', name: 'SF Expansion (B/C)', color: '#f59e0b' },
-  { id: 'tier_4_europe_expansion', name: 'Europe Expansion (C+)', color: '#8b5cf6' },
-  { id: 'all', name: 'All Companies', color: '#6b7280' },
-];
-
 // Commission Statuses
 export const COMMISSION_STATUSES = [
   { id: 'projected', name: 'Projected' },
   { id: 'in_contract', name: 'In Contract' },
   { id: 'closed', name: 'Closed' },
-  { id: 'invoice_sent', name: 'Invoice Sent' },
-  { id: 'overdue', name: 'Overdue' },
   { id: 'paid', name: 'Paid' },
 ];
+
+// ============ SETTINGS ============
+export function getSettings() {
+  const stored = loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+  // Merge with defaults so new keys (e.g. exaApiKey) are always present
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+  // Migrate: remove dead tavilyApiKey if leftover
+  delete merged.tavilyApiKey;
+  return merged;
+}
+
+export function saveSettings(settings) {
+  const merged = { ...DEFAULT_SETTINGS, ...settings };
+  saveData(STORAGE_KEYS.SETTINGS, merged);
+  return merged;
+}
 
 // ============ DEALS ============
 export function getDeals() {
@@ -110,12 +101,10 @@ export function saveDeal(deal) {
       deals[index] = { ...deals[index], ...deal, updatedAt: now };
     }
   } else {
-    // Create new deal with proper FK relationships
+    // Create new deal
     const newDeal = {
       ...deal,
       id: uuidv4(),
-      prospectId: deal.prospectId || null,    // FK to Prospect
-      companyId: deal.companyId || null,      // FK to MasterList company
       createdAt: now,
       updatedAt: now,
       stageHistory: [{ stage: deal.stage || 'kickoff', date: now }],
@@ -126,56 +115,6 @@ export function saveDeal(deal) {
 
   saveData(STORAGE_KEYS.DEALS, deals);
   return deals;
-}
-
-// Convert a Prospect to a Deal (one-click conversion)
-export function convertProspectToDeal(prospectId) {
-  const prospects = getProspects();
-  const prospect = prospects.find(p => p.id === prospectId);
-
-  if (!prospect) {
-    throw new Error('Prospect not found');
-  }
-
-  const now = new Date().toISOString();
-  const deals = getDeals();
-
-  // Create deal from prospect data
-  const newDeal = {
-    id: uuidv4(),
-    prospectId: prospect.id,                    // Link back to prospect
-    companyId: prospect.masterListId || null,   // Link to MasterList company
-    clientName: prospect.organizationName,
-    dealNickname: '',
-    contactName: prospect.contactName || '',
-    contactEmail: prospect.contactEmail || '',
-    contactPhone: prospect.contactPhone || '',
-    website: prospect.website || '',
-    squareFootage: '',
-    targetBudget: '',
-    targetDate: '',
-    notes: `Converted from Prospect on ${new Date().toLocaleDateString()}`,
-    stage: 'kickoff',
-    stageHistory: [{ stage: 'kickoff', date: now }],
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  deals.push(newDeal);
-  saveData(STORAGE_KEYS.DEALS, deals);
-
-  // Update prospect to mark as converted
-  const prospectIndex = prospects.findIndex(p => p.id === prospectId);
-  if (prospectIndex !== -1) {
-    prospects[prospectIndex].convertedToDealId = newDeal.id;
-    prospects[prospectIndex].convertedAt = now;
-    prospects[prospectIndex].crmStage = 'clients';  // Move to "Clients" stage
-    saveData(STORAGE_KEYS.PROSPECTS, prospects);
-  }
-
-  logActivity('prospect_converted', `${prospect.organizationName} converted to Deal`);
-
-  return { deal: newDeal, deals, prospects };
 }
 
 export function updateDealStage(dealId, newStage) {
@@ -210,122 +149,82 @@ export function saveMasterList(companies) {
   return companies;
 }
 
-export function addToMasterList(companies) {
-  const existing = getMasterList();
-  const now = new Date().toISOString();
-  const newCompanies = companies.map(c => {
-    const id = c.id || uuidv4();
-    return {
-      ...c,
-      id,
-      status: c.status || 'new',
-      addedAt: now,
-    };
-  });
-  const updated = [...existing, ...newCompanies];
-  saveData(STORAGE_KEYS.MASTER_LIST, updated);
-
-  // Log activity for each imported company
-  newCompanies.forEach(c => {
-    logActivity('company_imported', `${c.organizationName || 'Company'} added to Master List`, c.id);
-  });
-
-  return updated;
+// Normalize a URL for dedup: strip protocol, www, trailing slash
+function normalizeUrl(url) {
+  if (!url) return '';
+  return url.replace(/https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '').toLowerCase().trim();
 }
 
-// Persist Research Agent dossier to Company record
-export function saveDossierToCompany(companyId, dossier) {
-  const companies = getMasterList();
-  const index = companies.findIndex(c => c.id === companyId);
+export function addToMasterList(companies) {
+  const existing = getMasterList();
 
-  if (index === -1) {
-    throw new Error('Company not found');
+  // Build a set of existing keys for dedup
+  const existingKeys = new Set();
+  for (const c of existing) {
+    const website = normalizeUrl(c.website);
+    const name = (c.organizationName || '').toLowerCase().trim();
+    if (website) existingKeys.add(`url:${website}`);
+    if (name) existingKeys.add(`name:${name}`);
   }
 
-  const now = new Date().toISOString();
-  const companyName = dossier.company?.companyName || companies[index].organizationName;
+  const added = [];
+  let skipped = 0;
 
-  // Merge dossier data into company record
-  // IMPORTANT: Preserve CSV description if it exists (don't overwrite with agent-generated)
-  const existingDescription = companies[index].description;
-  const hasExistingDescription = existingDescription && existingDescription.trim().length > 0;
+  for (const c of companies) {
+    const website = normalizeUrl(c.website);
+    const name = (c.organizationName || '').toLowerCase().trim();
+    const isDupe = (website && existingKeys.has(`url:${website}`)) ||
+                   (name && existingKeys.has(`name:${name}`));
 
-  companies[index] = {
-    ...companies[index],
-    // Company overview
-    organizationName: companyName,
-    // Keep CSV description if present; only use dossier description if CSV was empty
-    description: hasExistingDescription ? existingDescription : (dossier.company?.description || ''),
-    industry: dossier.company?.industry || companies[index].industry,
-    foundedDate: dossier.company?.founded || companies[index].foundedDate,
-    headquarters: dossier.company?.headquarters || companies[index].headquarters,
-    employeeCount: dossier.company?.employeeCount || companies[index].employeeCount,
-    // Funding
-    totalFunding: dossier.company?.totalFunding || companies[index].totalFunding,
-    topInvestors: dossier.company?.topInvestors || companies[index].topInvestors,
-    lastFundingType: dossier.company?.lastFundingType || companies[index].lastFundingType,
-    lastFundingDate: dossier.company?.lastFundingDate || companies[index].lastFundingDate,
-    // NYC Intel
-    nycAddress: dossier.nycIntel?.address || dossier.company?.nycAddress || companies[index].nycAddress,
-    nycOfficeConfirmed: dossier.nycIntel?.confirmed || dossier.company?.nycOfficeConfirmed || companies[index].nycOfficeConfirmed,
-    nycHeadcount: dossier.nycIntel?.nyc_headcount || companies[index].nycHeadcount,
-    // Hiring
-    hiringStatus: dossier.hiring?.status || companies[index].hiringStatus,
-    totalJobs: dossier.hiring?.totalJobs || companies[index].totalJobs,
-    nycJobs: dossier.hiring?.nycJobs || companies[index].nycJobs,
-    departmentsHiring: dossier.hiring?.keyRoles || companies[index].departmentsHiring,
-    careersUrl: dossier.hiring?.careersUrl || dossier.nycIntel?.careersUrl || companies[index].careersUrl,
-    // Contacts from dossier
-    keyContacts: dossier.contacts?.length > 0
-      ? dossier.contacts.map(c => `${c.name} (${c.title})`).join(', ')
-      : companies[index].keyContacts,
-    // Links
-    linkedinUrl: dossier.company?.linkedinUrl || companies[index].linkedin,
-    // Prospect Scorecard
-    prospectScore: dossier.scorecard?.prospectScore ?? companies[index].prospectScore,
-    fundingScore: dossier.scorecard?.funding?.score ?? companies[index].fundingScore,
-    investorScore: dossier.scorecard?.investor?.score ?? companies[index].investorScore,
-    founderScore: dossier.scorecard?.founder?.score ?? companies[index].founderScore,
-    scorecard: dossier.scorecard || companies[index].scorecard,
-    // Founder Profiles
-    founderProfiles: dossier.founderProfiles || companies[index].founderProfiles,
-    // Research metadata
-    lastResearchedAt: now,
-    lastDossier: dossier,  // Store full dossier for reference
-    updatedAt: now,
-  };
-
-  // Create Contact records from dossier contacts
-  if (dossier.contacts?.length > 0) {
-    const existingContacts = getContacts();
-
-    dossier.contacts.forEach(contact => {
-      // Check if contact already exists (by email or name+company)
-      const exists = existingContacts.some(c =>
-        (contact.email && c.email === contact.email) ||
-        (c.companyId === companyId && c.name === contact.name)
-      );
-
-      if (!exists) {
-        saveContact({
-          companyId: companyId,
-          companyName: companyName,
-          name: contact.name,
-          title: contact.title || '',
-          email: contact.email || '',
-          phone: contact.phone || '',
-          linkedin: contact.linkedin || '',
-          source: 'research_agent',
-          notes: '',
-        });
-      }
-    });
+    if (isDupe) {
+      skipped++;
+    } else {
+      const newCompany = { ...c, id: c.id || uuidv4(), addedAt: new Date().toISOString() };
+      added.push(newCompany);
+      if (website) existingKeys.add(`url:${website}`);
+      if (name) existingKeys.add(`name:${name}`);
+    }
   }
 
+  const updated = [...existing, ...added];
+  saveData(STORAGE_KEYS.MASTER_LIST, updated);
+  logActivity('companies_imported', `${added.length} companies imported to Master List (${skipped} duplicates skipped)`);
+  return { companies: updated, added: added.length, skipped };
+}
+
+export function deleteCompaniesFromMasterList(companyIds) {
+  const idSet = new Set(companyIds);
+  const companies = getMasterList().filter(c => !idSet.has(c.id));
   saveData(STORAGE_KEYS.MASTER_LIST, companies);
-  logActivity('agent_completed', `Research agent completed for ${companyName}`, companyId);
 
+  // Cascading delete: contacts and follow-ups tied to these companies
+  const contacts = getContacts().filter(c => !idSet.has(c.companyId));
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  const followUps = getFollowUps().filter(f => !idSet.has(f.companyId));
+  saveData(STORAGE_KEYS.FOLLOWUPS, followUps);
+
+  logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
   return companies;
+}
+
+// ============ CONTACTS ============
+export function getContacts() {
+  return loadData(STORAGE_KEYS.CONTACTS, []);
+}
+
+export function saveContact(contact) {
+  const contacts = getContacts();
+  const now = new Date().toISOString();
+
+  if (contact.id && contacts.find(c => c.id === contact.id)) {
+    const index = contacts.findIndex(c => c.id === contact.id);
+    contacts[index] = { ...contacts[index], ...contact, updatedAt: now };
+  } else {
+    contacts.push({ ...contact, id: contact.id || uuidv4(), addedAt: now, updatedAt: now });
+  }
+
+  saveData(STORAGE_KEYS.CONTACTS, contacts);
+  return contacts;
 }
 
 // ============ PROSPECTS ============
@@ -423,8 +322,6 @@ export function saveCommission(commission) {
     commissions.push({
       ...commission,
       id: uuidv4(),
-      dealId: commission.dealId || null,       // FK to Deal
-      companyId: commission.companyId || null, // FK to MasterList company
       calculatedAmount,
       createdAt: now,
       updatedAt: now,
@@ -436,106 +333,10 @@ export function saveCommission(commission) {
   return commissions;
 }
 
-// Auto-create Commission when Deal closes
-export function createCommissionFromDeal(dealId) {
-  const deals = getDeals();
-  const deal = deals.find(d => d.id === dealId);
-
-  if (!deal) {
-    throw new Error('Deal not found');
-  }
-
-  // Check if commission already exists for this deal
-  const existingCommissions = getCommissions();
-  const existing = existingCommissions.find(c => c.dealId === dealId);
-  if (existing) {
-    return { commission: existing, commissions: existingCommissions, alreadyExists: true };
-  }
-
-  const now = new Date().toISOString();
-
-  const newCommission = {
-    id: uuidv4(),
-    dealId: deal.id,                           // Link to Deal
-    companyId: deal.companyId || null,         // Link to MasterList company
-    prospectId: deal.prospectId || null,       // Link to Prospect
-    clientName: deal.clientName,
-    squareFootage: deal.squareFootage || '',
-    annualRent: deal.targetBudget || '',       // Use target budget as starting point
-    leaseTerm: '',                             // User needs to fill in
-    commissionRate: '4',                       // Default 4%
-    status: 'in_contract',                     // Auto-set to "In Contract"
-    calculatedAmount: 0,
-    notes: `Auto-created from Deal on ${new Date().toLocaleDateString()}`,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  existingCommissions.push(newCommission);
-  saveData(STORAGE_KEYS.COMMISSIONS, existingCommissions);
-
-  logActivity('commission_auto_created', `Commission auto-created for ${deal.clientName}`);
-
-  return { commission: newCommission, commissions: existingCommissions, alreadyExists: false };
-}
-
 export function deleteCommission(commissionId) {
   const commissions = getCommissions().filter(c => c.id !== commissionId);
   saveData(STORAGE_KEYS.COMMISSIONS, commissions);
   return commissions;
-}
-
-// ============ CONTACTS ============
-export function getContacts() {
-  return loadData(STORAGE_KEYS.CONTACTS, []);
-}
-
-export function saveContact(contact) {
-  const contacts = getContacts();
-  const now = new Date().toISOString();
-
-  if (contact.id) {
-    const index = contacts.findIndex(c => c.id === contact.id);
-    if (index !== -1) {
-      contacts[index] = { ...contacts[index], ...contact, updatedAt: now };
-    }
-  } else {
-    contacts.push({
-      ...contact,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  saveData(STORAGE_KEYS.CONTACTS, contacts);
-  return contacts;
-}
-
-export function getContactsByCompany(companyId) {
-  return getContacts().filter(c => c.companyId === companyId);
-}
-
-export function deleteContact(contactId) {
-  const contacts = getContacts().filter(c => c.id !== contactId);
-  saveData(STORAGE_KEYS.CONTACTS, contacts);
-  return contacts;
-}
-
-// Create follow-up from contact
-export function createFollowUpFromContact(contact, note, dueDate) {
-  const followUp = {
-    contactId: contact.id,
-    companyId: contact.companyId,
-    companyName: contact.companyName,
-    contactName: contact.name,
-    contactEmail: contact.email,
-    contactTitle: contact.title,
-    note: note || `Follow up with ${contact.name}`,
-    dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 1 week
-  };
-
-  return saveFollowUp(followUp);
 }
 
 // ============ FOLLOW-UPS ============
@@ -588,13 +389,12 @@ export function getActivityLog() {
   return loadData(STORAGE_KEYS.ACTIVITY_LOG, []);
 }
 
-export function logActivity(type, message, companyId = null) {
+export function logActivity(type, message) {
   const activities = getActivityLog();
   activities.unshift({
     id: uuidv4(),
     type,
     message,
-    companyId,  // Optional: link activity to specific company
     timestamp: new Date().toISOString(),
   });
   // Keep only last 100 activities
@@ -603,424 +403,231 @@ export function logActivity(type, message, companyId = null) {
   return trimmed;
 }
 
-// Get activity timeline for a specific company
-export function getCompanyActivities(companyId) {
-  const activities = getActivityLog();
-  return activities.filter(a => a.companyId === companyId);
-}
+// ============ PROSPECT → DEAL CONVERSION ============
+export function convertProspectToDeal(prospectId) {
+  const prospects = getProspects();
+  const prospect = prospects.find(p => p.id === prospectId);
+  if (!prospect) throw new Error('Prospect not found');
 
-// Update company status and log the change
-export function updateCompanyStatus(companyId, newStatus) {
-  const companies = getMasterList();
-  const index = companies.findIndex(c => c.id === companyId);
-  if (index === -1) return companies;
-
-  const company = companies[index];
-  const oldStatus = company.status || 'new';
   const now = new Date().toISOString();
-
-  companies[index] = {
-    ...company,
-    status: newStatus,
-    statusUpdatedAt: now,
+  const newDeal = {
+    id: uuidv4(),
+    prospectId: prospect.id,
+    companyId: prospect.masterListId || null,
+    clientName: prospect.organizationName,
+    contactName: prospect.contactName || '',
+    contactEmail: prospect.contactEmail || '',
+    stage: 'kickoff',
+    stageHistory: [{ stage: 'kickoff', date: now }],
+    createdAt: now,
     updatedAt: now,
+    notes: `Converted from prospect on ${new Date().toLocaleDateString()}`,
   };
 
-  saveData(STORAGE_KEYS.MASTER_LIST, companies);
-  logActivity('status_changed', `Status changed from ${oldStatus} to ${newStatus}`, companyId);
-  return companies;
-}
-
-// Bulk delete companies from Master List
-export function deleteCompaniesFromMasterList(companyIds) {
-  const companies = getMasterList();
-  const toDelete = new Set(companyIds);
-  const remaining = companies.filter(c => !toDelete.has(c.id));
-  saveData(STORAGE_KEYS.MASTER_LIST, remaining);
-  logActivity('companies_deleted', `${companyIds.length} companies removed from Master List`);
-  return remaining;
-}
-
-// ============ LEASES ============
-export function getLeases() {
-  return loadData(STORAGE_KEYS.LEASES, []);
-}
-
-export function saveLease(lease) {
-  const leases = getLeases();
-  const now = new Date().toISOString();
-
-  if (lease.id) {
-    const index = leases.findIndex(l => l.id === lease.id);
-    if (index !== -1) {
-      leases[index] = { ...leases[index], ...lease, updatedAt: now };
-    }
-  } else {
-    leases.push({
-      ...lease,
-      id: uuidv4(),
-      uploadedAt: now,
-      status: 'ready',
-    });
-    logActivity('lease_uploaded', `Lease document uploaded: ${lease.name}`);
-  }
-
-  saveData(STORAGE_KEYS.LEASES, leases);
-  return leases;
-}
-
-export function deleteLease(leaseId) {
-  const leases = getLeases().filter(l => l.id !== leaseId);
-  saveData(STORAGE_KEYS.LEASES, leases);
-  return leases;
-}
-
-// ============ CLAUSE REPOSITORY ============
-const STORAGE_CLAUSE_KEY = 'dealflow_clauses';
-
-export const CLAUSE_CATEGORIES = [
-  { id: 'rent', name: 'Rent & Escalations' },
-  { id: 'term', name: 'Term & Renewal' },
-  { id: 'improvements', name: 'Tenant Improvements' },
-  { id: 'sublease', name: 'Sublease & Assignment' },
-  { id: 'maintenance', name: 'Maintenance & Repairs' },
-  { id: 'insurance', name: 'Insurance & Indemnity' },
-  { id: 'default', name: 'Default & Remedies' },
-  { id: 'other', name: 'Other' },
-];
-
-export function getClauses() {
-  return loadData(STORAGE_CLAUSE_KEY, []);
-}
-
-export function saveClause(clause) {
-  const clauses = getClauses();
-  const now = new Date().toISOString();
-
-  if (clause.id) {
-    const index = clauses.findIndex(c => c.id === clause.id);
-    if (index !== -1) {
-      clauses[index] = { ...clauses[index], ...clause, updatedAt: now };
-    }
-  } else {
-    clauses.push({
-      ...clause,
-      id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  saveData(STORAGE_CLAUSE_KEY, clauses);
-  return clauses;
-}
-
-export function deleteClause(clauseId) {
-  const clauses = getClauses().filter(c => c.id !== clauseId);
-  saveData(STORAGE_CLAUSE_KEY, clauses);
-  return clauses;
-}
-
-// ============ PIPELINE VELOCITY ============
-export function getPipelineVelocity() {
   const deals = getDeals();
-  if (deals.length === 0) return null;
+  deals.push(newDeal);
+  saveData(STORAGE_KEYS.DEALS, deals);
 
-  // Calculate avg days per stage
-  const stageTimings = {};
-  DEAL_STAGES.forEach(s => { stageTimings[s.id] = []; });
+  // Update prospect
+  const idx = prospects.findIndex(p => p.id === prospectId);
+  prospects[idx].convertedToDealId = newDeal.id;
+  prospects[idx].crmStage = 'clients';
+  saveData(STORAGE_KEYS.PROSPECTS, prospects);
 
-  deals.forEach(deal => {
-    if (!deal.stageHistory || deal.stageHistory.length < 2) return;
-    for (let i = 1; i < deal.stageHistory.length; i++) {
-      const prev = deal.stageHistory[i - 1];
-      const curr = deal.stageHistory[i];
-      const days = Math.floor((new Date(curr.date) - new Date(prev.date)) / 86400000);
-      if (stageTimings[prev.stage]) {
-        stageTimings[prev.stage].push(days);
-      }
-    }
-  });
-
-  const avgDaysPerStage = {};
-  DEAL_STAGES.forEach(s => {
-    const times = stageTimings[s.id];
-    avgDaysPerStage[s.id] = times.length > 0
-      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
-      : null;
-  });
-
-  // Total avg cycle time (deals that reached closed)
-  const closedDeals = deals.filter(d => d.stage === 'closed' && d.stageHistory?.length >= 2);
-  let avgCycleTime = null;
-  if (closedDeals.length > 0) {
-    const cycleTimes = closedDeals.map(d => {
-      const first = new Date(d.stageHistory[0].date);
-      const last = new Date(d.stageHistory[d.stageHistory.length - 1].date);
-      return Math.floor((last - first) / 86400000);
-    });
-    avgCycleTime = Math.round(cycleTimes.reduce((a, b) => a + b, 0) / cycleTimes.length);
-  }
-
-  // Conversion: deals that moved past each stage
-  const conversionByStage = {};
-  DEAL_STAGES.forEach((stage, idx) => {
-    if (idx === DEAL_STAGES.length - 1) return;
-    const enteredStage = deals.filter(d =>
-      d.stageHistory?.some(h => h.stage === stage.id)
-    ).length;
-    const passedStage = deals.filter(d =>
-      d.stageHistory?.some(h => h.stage === DEAL_STAGES[idx + 1]?.id)
-    ).length;
-    conversionByStage[stage.id] = enteredStage > 0
-      ? Math.round((passedStage / enteredStage) * 100)
-      : null;
-  });
-
-  return {
-    avgDaysPerStage,
-    avgCycleTime,
-    conversionByStage,
-    totalDeals: deals.length,
-    closedDeals: closedDeals.length,
-    winRate: deals.length > 0 ? Math.round((closedDeals.length / deals.length) * 100) : 0,
-  };
+  logActivity('prospect_converted', `${prospect.organizationName} converted to deal`);
+  return { deal: newDeal, deals, prospects };
 }
 
-// ============ SETTINGS ============
-const DEFAULT_SETTINGS = {
-  proxyUrl: '',
-  apolloApiKey: '',
-  perplexityApiKey: '',
-  tavilyApiKey: '',
-  firecrawlApiKey: '',
-  anthropicApiKey: '',
-  autoEnrich: false,
-  enrichFields: ['industry', 'employeeCount', 'description', 'linkedinUrl'],
-};
+// ============ AUTO-CREATE COMMISSION FROM DEAL ============
+export function createCommissionFromDeal(dealId) {
+  const deals = getDeals();
+  const deal = deals.find(d => d.id === dealId);
+  if (!deal) throw new Error('Deal not found');
 
-export function getSettings() {
-  return loadData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
-}
+  const existing = getCommissions().find(c => c.dealId === dealId);
+  if (existing) return { commission: existing, alreadyExists: true };
 
-export function saveSettings(settings) {
-  const merged = { ...DEFAULT_SETTINGS, ...settings };
-  saveData(STORAGE_KEYS.SETTINGS, merged);
-  return merged;
-}
-
-// ============ COMPANY ENRICHMENT ============
-export async function enrichCompany(domain) {
-  const settings = getSettings();
-
-  if (!settings.proxyUrl || (!settings.perplexityApiKey && !settings.apolloApiKey)) {
-    throw new Error('Configure Proxy URL and at least one API key in Settings.');
-  }
-
-  const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
-  const response = await fetch(`${proxyUrl}/enrich`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      domain,
-      perplexityApiKey: settings.perplexityApiKey || '',
-      apolloApiKey: settings.apolloApiKey || '',
-      tavilyApiKey: settings.tavilyApiKey || '',
-      firecrawlApiKey: settings.firecrawlApiKey || '',
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Proxy returned ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
-}
-
-// ============ RESEARCH AGENT ============
-export async function runResearchAgent(domain, onProgress) {
-  const settings = getSettings();
-
-  if (!settings.proxyUrl || (!settings.perplexityApiKey && !settings.apolloApiKey)) {
-    throw new Error('Configure Proxy URL and at least one API key in Settings.');
-  }
-
-  const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
-
-  // Notify progress
-  if (onProgress) onProgress({ step: 1, total: 8, message: 'Starting research agent...' });
-
-  const response = await fetch(`${proxyUrl}/agent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      domain,
-      perplexityApiKey: settings.perplexityApiKey || '',
-      apolloApiKey: settings.apolloApiKey || '',
-      tavilyApiKey: settings.tavilyApiKey || '',
-      firecrawlApiKey: settings.firecrawlApiKey || '',
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Agent returned ${response.status}`);
-  }
-
-  const dossier = await response.json();
-  if (dossier?.error) {
-    throw new Error(dossier.error);
-  }
-
-  if (onProgress) onProgress({ step: 8, total: 8, message: 'Research complete!' });
-
-  return dossier;
-}
-
-// ============ CLAUDE CHAT ============
-export async function sendChatMessage(messages, context = {}) {
-  const settings = getSettings();
-
-  if (!settings.proxyUrl || !settings.anthropicApiKey) {
-    throw new Error('Configure Proxy URL and Anthropic API key in Settings.');
-  }
-
-  const proxyUrl = settings.proxyUrl.replace(/\/$/, '');
-
-  const response = await fetch(`${proxyUrl}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages,
-      context,
-      anthropicApiKey: settings.anthropicApiKey,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Chat returned ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
-}
-
-// Get context for chat based on current view
-export function getChatContext(type, data) {
-  const baseContext = {
-    deals: getDeals(),
-    prospects: getProspects(),
-    followUps: getFollowUps().filter(f => !f.completed),
-    staleDeals: getStaleDeals(),
+  const commission = {
+    id: uuidv4(),
+    dealId: deal.id,
+    clientName: deal.clientName,
+    squareFootage: deal.squareFootage || '',
+    annualRent: deal.targetBudget || '',
+    leaseTerm: '',
+    commissionRate: '4',
+    status: 'in_contract',
+    calculatedAmount: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    notes: `Auto-created from deal on ${new Date().toLocaleDateString()}`,
   };
 
-  if (type === 'company' && data) {
-    return {
-      ...baseContext,
-      currentCompany: data,
-      contacts: getContactsByCompany(data.id),
-    };
-  }
+  const commissions = getCommissions();
+  commissions.push(commission);
+  saveData(STORAGE_KEYS.COMMISSIONS, commissions);
+  logActivity('commission_auto_created', `Commission auto-created for ${deal.clientName}`);
 
-  if (type === 'deal' && data) {
-    return {
-      ...baseContext,
-      currentDeal: data,
-    };
-  }
-
-  if (type === 'prospect' && data) {
-    return {
-      ...baseContext,
-      currentProspect: data,
-    };
-  }
-
-  return baseContext;
+  return { commission, alreadyExists: false };
 }
 
-// ============ STALE DEALS DETECTION ============
-// Deals sitting too long in a stage need attention
+// ============ STALE DEALS ============
 const STALE_THRESHOLDS = {
-  kickoff: 14,      // 2 weeks in kickoff is stale
-  touring: 21,      // 3 weeks touring is stale
-  loi: 14,          // 2 weeks in LOI is stale
-  negotiation: 30,  // 1 month negotiating is stale
-  consent: 21,      // 3 weeks in consent is stale
-  on_hold: 30,      // 1 month on hold - reminder
+  kickoff: 14, touring: 21, loi: 14, negotiation: 30, consent: 21,
 };
 
 export function getStaleDeals() {
   const deals = getDeals();
   const now = new Date();
-  const staleDeals = [];
-
-  deals.forEach(deal => {
-    // Skip closed, lost deals
-    if (deal.stage === 'closed' || deal.stage === 'lost') return;
-
-    // Get days in current stage
-    if (!deal.stageHistory || deal.stageHistory.length === 0) return;
-    const lastStageChange = deal.stageHistory[deal.stageHistory.length - 1];
-    const stageDate = new Date(lastStageChange.date);
-    const daysInStage = Math.floor((now - stageDate) / (1000 * 60 * 60 * 24));
-
-    // Check against threshold
+  return deals.filter(deal => {
+    if (deal.stage === 'closed' || deal.stage === 'lost') return false;
+    if (!deal.stageHistory?.length) return false;
+    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
     const threshold = STALE_THRESHOLDS[deal.stage];
-    if (threshold && daysInStage > threshold) {
-      staleDeals.push({
-        ...deal,
-        daysInStage,
-        threshold,
-        overBy: daysInStage - threshold,
-        stageName: DEAL_STAGES.find(s => s.id === deal.stage)?.name || deal.stage,
-      });
-    }
+    return threshold && days > threshold;
+  }).map(deal => {
+    const lastChange = deal.stageHistory[deal.stageHistory.length - 1];
+    const days = Math.floor((now - new Date(lastChange.date)) / 86400000);
+    return { ...deal, daysInStage: days, threshold: STALE_THRESHOLDS[deal.stage] };
   });
-
-  // Sort by most overdue first
-  return staleDeals.sort((a, b) => b.overBy - a.overBy);
 }
 
-// Get deals needing attention (approaching stale threshold)
-export function getDealsNeedingAttention() {
-  const deals = getDeals();
-  const now = new Date();
-  const attentionDeals = [];
+// ============ RESEARCH AGENT ============
+function getProxyHeaders() {
+  const settings = getSettings();
+  const headers = { 'Content-Type': 'application/json' };
+  if (settings.proxySecret) {
+    headers['Authorization'] = `Bearer ${settings.proxySecret}`;
+  }
+  return headers;
+}
 
-  deals.forEach(deal => {
-    // Skip closed, lost deals
-    if (deal.stage === 'closed' || deal.stage === 'lost') return;
+export async function enrichCompany(domain) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
 
-    if (!deal.stageHistory || deal.stageHistory.length === 0) return;
-    const lastStageChange = deal.stageHistory[deal.stageHistory.length - 1];
-    const stageDate = new Date(lastStageChange.date);
-    const daysInStage = Math.floor((now - stageDate) / (1000 * 60 * 60 * 24));
-
-    const threshold = STALE_THRESHOLDS[deal.stage];
-    if (!threshold) return;
-
-    // Flag if within 5 days of threshold (warning zone)
-    const daysUntilStale = threshold - daysInStage;
-    if (daysUntilStale > 0 && daysUntilStale <= 5) {
-      attentionDeals.push({
-        ...deal,
-        daysInStage,
-        daysUntilStale,
-        stageName: DEAL_STAGES.find(s => s.id === deal.stage)?.name || deal.stage,
-      });
-    }
+  const res = await fetch(`${settings.proxyUrl}/enrich`, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: JSON.stringify({
+      domain,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      exaApiKey: settings.exaApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
+    }),
   });
 
-  return attentionDeals.sort((a, b) => a.daysUntilStale - b.daysUntilStale);
+  if (!res.ok) throw new Error(`Enrich failed: ${res.status}`);
+  return res.json();
+}
+
+export async function runResearchAgent(domain, onProgress = () => {}, companyData = {}) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
+
+  const csvData = {
+    organizationName: companyData.organizationName,
+    description: companyData.description,
+    founders: companyData.founders,
+    topInvestors: companyData.topInvestors,
+    leadInvestors: companyData.leadInvestors,
+    totalFunding: companyData.totalFunding,
+    lastFundingAmount: companyData.lastFundingAmount,
+    lastFundingType: companyData.lastFundingType,
+    lastFundingDate: companyData.lastFundingDate,
+    foundedYear: companyData.foundedYear,
+    headquarters: companyData.headquarters,
+    industries: companyData.industries,
+    linkedin: companyData.linkedin,
+    crunchbaseUrl: companyData.crunchbaseUrl,
+    employeeCount: companyData.employeeCount,
+    cbRank: companyData.cbRank,
+    fundingRounds: companyData.fundingRounds,
+  };
+
+  let res;
+  try {
+    res = await fetch(`${settings.proxyUrl}/agent`, {
+      method: 'POST',
+      headers: getProxyHeaders(),
+      body: JSON.stringify({
+        domain,
+        csvData,
+        perplexityApiKey: settings.perplexityApiKey || '',
+        apolloApiKey: settings.apolloApiKey || '',
+        exaApiKey: settings.exaApiKey || '',
+        firecrawlApiKey: settings.firecrawlApiKey || '',
+      }),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Cannot reach proxy at ${settings.proxyUrl}. Check that the worker is deployed and the URL is correct.`);
+  }
+
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch {}
+    throw new Error(`Agent failed (${res.status})${detail ? ': ' + detail : ''}`);
+  }
+
+  // Handle streaming progress
+  const reader = res.body?.getReader();
+  if (!reader) return res.json();
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') continue;
+
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'progress') {
+          onProgress(parsed);
+        } else if (parsed.type === 'result') {
+          finalResult = parsed.data;
+        } else if (parsed.type === 'error') {
+          throw new Error(parsed.message || 'Agent pipeline error');
+        }
+      } catch (parseErr) {
+        if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+        // skip unparseable lines
+      }
+    }
+  }
+
+  return finalResult;
+}
+
+export async function sendChatMessage(messages) {
+  const settings = getSettings();
+  if (!settings.proxyUrl) throw new Error('Proxy URL not configured. Go to Settings.');
+
+  const res = await fetch(`${settings.proxyUrl}/chat`, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: JSON.stringify({
+      messages,
+      perplexityApiKey: settings.perplexityApiKey || '',
+      apolloApiKey: settings.apolloApiKey || '',
+      exaApiKey: settings.exaApiKey || '',
+      firecrawlApiKey: settings.firecrawlApiKey || '',
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
+  return res.json();
 }
 
 // ============ DASHBOARD STATS ============
@@ -1103,8 +710,5 @@ export function getDashboardStats() {
       thisWeekList: thisWeekFollowUps.slice(0, 10),
     },
     recentActivity: getActivityLog().slice(0, 10),
-    // Proactive alerts
-    staleDeals: getStaleDeals(),
-    attentionDeals: getDealsNeedingAttention(),
   };
 }

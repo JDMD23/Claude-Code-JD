@@ -1,9 +1,9 @@
 {
-  "name": "claude-code-jd",
+  "name": "norman-cre",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
-  "homepage": "https://JDMD23.github.io/Claude-Code-JD",
+  "homepage": "https://JDMD23.github.io/NormanCRE",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

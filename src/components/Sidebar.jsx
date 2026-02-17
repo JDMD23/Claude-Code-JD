@@ -6,6 +6,7 @@ import {
   Database,
   FileText,
   DollarSign,
+  Settings,
   ChevronLeft,
   ChevronRight,
   Building2,

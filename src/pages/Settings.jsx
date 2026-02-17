@@ -1,22 +1,55 @@
-import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, Zap, Shield, Eye, EyeOff, CheckCircle2, AlertCircle, Database, Trash2 } from 'lucide-react';
-import { getSettings, saveSettings, enrichCompany, getMasterList, addToMasterList } from '../store/dataStore';
+import { useState, useRef } from 'react';
+import { Save, Download, Upload, Key, Shield, Zap, Wifi, WifiOff } from 'lucide-react';
+import { getSettings, saveSettings } from '../store/dataStore';
 import './Pages.css';
-import './Settings.css';
+
+const EXPORT_KEYS = [
+  'dealflow_deals',
+  'dealflow_prospects',
+  'dealflow_master_list',
+  'dealflow_commissions',
+  'dealflow_contacts',
+  'dealflow_followups',
+  'dealflow_activity',
+];
 
 function Settings() {
-  const [settings, setSettings] = useState(getSettings());
+  const [settings, setSettings] = useState(() => getSettings());
   const [saved, setSaved] = useState(false);
-  const [showApollo, setShowApollo] = useState(false);
-  const [showPerplexity, setShowPerplexity] = useState(false);
-  const [showTavily, setShowTavily] = useState(false);
-  const [showFirecrawl, setShowFirecrawl] = useState(false);
-  const [showAnthropic, setShowAnthropic] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [testing, setTesting] = useState(false);
+  const [connStatus, setConnStatus] = useState(null); // null | 'testing' | 'ok' | 'error'
+  const [connDetail, setConnDetail] = useState('');
+  const importRef = useRef(null);
 
-  const handleChange = (field, value) => {
-    setSettings(prev => ({ ...prev, [field]: value }));
+  const testConnection = async () => {
+    if (!settings.proxyUrl) {
+      setConnStatus('error');
+      setConnDetail('No Proxy URL entered.');
+      return;
+    }
+    setConnStatus('testing');
+    setConnDetail('');
+    try {
+      const url = settings.proxyUrl.replace(/\/+$/, '');
+      const headers = { 'Content-Type': 'application/json' };
+      if (settings.proxySecret) headers['Authorization'] = `Bearer ${settings.proxySecret}`;
+      const res = await fetch(`${url}/health`, { method: 'GET', headers });
+      if (res.ok) {
+        const data = await res.json();
+        setConnStatus('ok');
+        setConnDetail(`Connected! Routes: ${(data.routes || []).join(', ')}`);
+      } else {
+        setConnStatus('error');
+        setConnDetail(`Worker responded with ${res.status}. Check the URL and redeploy if needed.`);
+      }
+    } catch (err) {
+      setConnStatus('error');
+      setConnDetail(`Cannot reach ${settings.proxyUrl}. Check the URL or make sure the worker is deployed.`);
+    }
+  };
+
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setSettings(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     setSaved(false);
   };
 
@@ -26,35 +59,58 @@ function Settings() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleTestEnrich = async () => {
-    setTesting(true);
-    setTestResult(null);
+  const handleExport = () => {
+    const data = { version: 1, exportedAt: new Date().toISOString() };
+    for (const key of EXPORT_KEYS) {
+      try {
+        const raw = localStorage.getItem(key);
+        data[key] = raw ? JSON.parse(raw) : [];
+      } catch {
+        data[key] = [];
+      }
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dealflow-backup-${dateStr}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     try {
-      const result = await enrichCompany('rogo.ai');
-      const hasData = Object.keys(result).length > 0;
-      setTestResult({
-        success: hasData,
-        message: hasData
-          ? `Found: ${result.companyName || 'N/A'} | ${result.description || 'No description'}`
-          : 'No data returned.',
-      });
-    } catch (err) {
-      setTestResult({ success: false, message: err.message || 'Connection failed.' });
-    }
-    setTesting(false);
-  };
+      const text = await file.text();
+      const data = JSON.parse(text);
 
-  const handleClearData = (key, label) => {
-    if (confirm(`Clear all ${label}? This cannot be undone.`)) {
-      localStorage.removeItem(`dealflow_${key}`);
+      if (!data.version) {
+        alert('Invalid backup file: missing version field.');
+        return;
+      }
+
+      if (!confirm('This will replace ALL current data (except your API settings). Are you sure?')) {
+        return;
+      }
+
+      for (const key of EXPORT_KEYS) {
+        if (data[key] !== undefined) {
+          localStorage.setItem(key, JSON.stringify(data[key]));
+        }
+      }
+
+      alert('Data imported successfully. Reloading...');
       window.location.reload();
+    } catch (err) {
+      alert(`Import failed: ${err.message}`);
     }
-  };
 
-  const maskKey = (key) => {
-    if (!key) return '';
-    if (key.length <= 8) return '*'.repeat(key.length);
-    return key.slice(0, 4) + '*'.repeat(key.length - 8) + key.slice(-4);
+    // Reset file input
+    if (importRef.current) importRef.current.value = '';
   };
 
   return (
@@ -62,247 +118,142 @@ function Settings() {
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p>API keys, enrichment services, and data management</p>
+          <p>Configure API keys and proxy connection</p>
         </div>
+        <button className="btn btn-primary" onClick={handleSave}>
+          <Save size={18} />
+          {saved ? 'Saved!' : 'Save Settings'}
+        </button>
       </div>
 
-      {/* Proxy + API Keys Section */}
-      <div className="card settings-section">
-        <div className="settings-section-header">
-          <Key size={18} strokeWidth={1.5} />
-          <h3>API Proxy & Keys</h3>
-        </div>
-        <p className="settings-description">
-          To use Perplexity/Apollo enrichment, you need a proxy server (see workers/proxy.js for setup instructions).
-          Keys are stored locally in your browser and sent only to your proxy.
-        </p>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Proxy URL</span>
-            <span className="api-key-hint">Your Cloudflare Worker URL (e.g. https://dealflow-proxy.you.workers.dev)</span>
-          </label>
-          <div className="api-key-input-wrap">
+      <div className="settings-grid">
+        <div className="card settings-section">
+          <h3><Shield size={18} /> Proxy Configuration</h3>
+          <div className="form-group">
+            <label>Proxy URL</label>
             <input
               type="text"
+              name="proxyUrl"
               value={settings.proxyUrl}
-              onChange={(e) => handleChange('proxyUrl', e.target.value)}
-              placeholder="https://dealflow-proxy.your-name.workers.dev"
-              className="api-key-input"
+              onChange={handleChange}
+              placeholder="https://your-worker.your-subdomain.workers.dev"
             />
           </div>
-        </div>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Apollo.io API Key</span>
-            <span className="api-key-hint">Organization enrichment, employee data</span>
-          </label>
-          <div className="api-key-input-wrap">
+          <div className="form-group">
+            <label>Proxy Secret</label>
             <input
-              type={showApollo ? 'text' : 'password'}
-              value={settings.apolloApiKey}
-              onChange={(e) => handleChange('apolloApiKey', e.target.value)}
-              placeholder="Enter your Apollo API key..."
-              className="api-key-input"
+              type="password"
+              name="proxySecret"
+              value={settings.proxySecret}
+              onChange={handleChange}
+              placeholder="Bearer token for proxy auth"
             />
-            <button
-              className="icon-btn"
-              onClick={() => setShowApollo(!showApollo)}
-              type="button"
-            >
-              {showApollo ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
-            </button>
           </div>
-        </div>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Perplexity API Key</span>
-            <span className="api-key-hint">AI-powered company research</span>
-          </label>
-          <div className="api-key-input-wrap">
-            <input
-              type={showPerplexity ? 'text' : 'password'}
-              value={settings.perplexityApiKey}
-              onChange={(e) => handleChange('perplexityApiKey', e.target.value)}
-              placeholder="Enter your Perplexity API key..."
-              className="api-key-input"
-            />
-            <button
-              className="icon-btn"
-              onClick={() => setShowPerplexity(!showPerplexity)}
-              type="button"
-            >
-              {showPerplexity ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Tavily API Key</span>
-            <span className="api-key-hint">Advanced web search for NYC addresses (tavily.com)</span>
-          </label>
-          <div className="api-key-input-wrap">
-            <input
-              type={showTavily ? 'text' : 'password'}
-              value={settings.tavilyApiKey || ''}
-              onChange={(e) => handleChange('tavilyApiKey', e.target.value)}
-              placeholder="Enter your Tavily API key (tvly-...)..."
-              className="api-key-input"
-            />
-            <button
-              className="icon-btn"
-              onClick={() => setShowTavily(!showTavily)}
-              type="button"
-            >
-              {showTavily ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Firecrawl API Key</span>
-            <span className="api-key-hint">Careers page scraping for accurate job counts (firecrawl.dev)</span>
-          </label>
-          <div className="api-key-input-wrap">
-            <input
-              type={showFirecrawl ? 'text' : 'password'}
-              value={settings.firecrawlApiKey || ''}
-              onChange={(e) => handleChange('firecrawlApiKey', e.target.value)}
-              placeholder="Enter your Firecrawl API key (fc-...)..."
-              className="api-key-input"
-            />
-            <button
-              className="icon-btn"
-              onClick={() => setShowFirecrawl(!showFirecrawl)}
-              type="button"
-            >
-              {showFirecrawl ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="api-key-group">
-          <label className="api-key-label">
-            <span>Claude API Key</span>
-            <span className="api-key-hint">AI assistant for drafting emails, analyzing deals (console.anthropic.com)</span>
-          </label>
-          <div className="api-key-input-wrap">
-            <input
-              type={showAnthropic ? 'text' : 'password'}
-              value={settings.anthropicApiKey || ''}
-              onChange={(e) => handleChange('anthropicApiKey', e.target.value)}
-              placeholder="Enter your Anthropic API key (sk-ant-...)..."
-              className="api-key-input"
-            />
-            <button
-              className="icon-btn"
-              onClick={() => setShowAnthropic(!showAnthropic)}
-              type="button"
-            >
-              {showAnthropic ? <EyeOff size={16} strokeWidth={1.5} /> : <Eye size={16} strokeWidth={1.5} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="settings-actions">
-          <button className="btn btn-primary" onClick={handleSave}>
-            {saved ? <><CheckCircle2 size={16} strokeWidth={1.5} /> Saved</> : 'Save Keys'}
-          </button>
           <button
             className="btn btn-secondary"
-            onClick={handleTestEnrich}
-            disabled={testing}
+            onClick={testConnection}
+            disabled={connStatus === 'testing'}
+            style={{ marginTop: '0.5rem' }}
           >
-            <Zap size={16} strokeWidth={1.5} />
-            {testing ? 'Testing...' : 'Test with rogo.ai'}
+            {connStatus === 'testing' ? <Wifi size={18} /> : connStatus === 'ok' ? <Wifi size={18} /> : <WifiOff size={18} />}
+            {connStatus === 'testing' ? 'Testing...' : 'Test Connection'}
           </button>
+          {connStatus && connStatus !== 'testing' && (
+            <p style={{
+              fontSize: '0.85rem',
+              marginTop: '0.5rem',
+              color: connStatus === 'ok' ? '#22c55e' : '#ef4444',
+            }}>
+              {connDetail}
+            </p>
+          )}
         </div>
 
-        {testResult && (
-          <div className={`test-result ${testResult.success ? 'success' : 'error'}`}>
-            {testResult.success
-              ? <CheckCircle2 size={16} strokeWidth={1.5} />
-              : <AlertCircle size={16} strokeWidth={1.5} />
-            }
-            <span>{testResult.message}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Enrichment Settings */}
-      <div className="card settings-section">
-        <div className="settings-section-header">
-          <Zap size={18} strokeWidth={1.5} />
-          <h3>Enrichment</h3>
-        </div>
-        <p className="settings-description">
-          Configure auto-enrichment when adding companies to the Master List.
-        </p>
-
-        <div className="setting-toggle">
-          <div>
-            <span className="setting-toggle-label">Auto-enrich new companies</span>
-            <span className="setting-toggle-hint">Automatically fetch data when adding companies via Quick-Add</span>
-          </div>
-          <label className="toggle-switch">
+        <div className="card settings-section">
+          <h3><Key size={18} /> API Keys</h3>
+          <div className="form-group">
+            <label>Perplexity API Key</label>
             <input
-              type="checkbox"
-              checked={settings.autoEnrich}
-              onChange={(e) => handleChange('autoEnrich', e.target.checked)}
+              type="password"
+              name="perplexityApiKey"
+              value={settings.perplexityApiKey}
+              onChange={handleChange}
+              placeholder="pplx-..."
             />
-            <span className="toggle-slider" />
-          </label>
+          </div>
+          <div className="form-group">
+            <label>Apollo API Key</label>
+            <input
+              type="password"
+              name="apolloApiKey"
+              value={settings.apolloApiKey}
+              onChange={handleChange}
+              placeholder="Apollo.io API key"
+            />
+          </div>
+          <div className="form-group">
+            <label>Exa API Key</label>
+            <input
+              type="password"
+              name="exaApiKey"
+              value={settings.exaApiKey}
+              onChange={handleChange}
+              placeholder="Exa API key"
+            />
+          </div>
+          <div className="form-group">
+            <label>Firecrawl API Key</label>
+            <input
+              type="password"
+              name="firecrawlApiKey"
+              value={settings.firecrawlApiKey}
+              onChange={handleChange}
+              placeholder="fc-..."
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Data Management */}
-      <div className="card settings-section">
-        <div className="settings-section-header">
-          <Database size={18} strokeWidth={1.5} />
-          <h3>Data Management</h3>
+        <div className="card settings-section">
+          <h3><Zap size={18} /> Automation</h3>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                name="autoEnrich"
+                checked={settings.autoEnrich}
+                onChange={handleChange}
+              />
+              Auto-enrich new companies (Quick Add)
+            </label>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+              Automatically run the research agent when adding a company via Quick Add
+            </p>
+          </div>
         </div>
-        <p className="settings-description">
-          All data is stored in your browser's local storage. Clearing data cannot be undone.
-        </p>
 
-        <div className="data-actions">
-          <button className="btn btn-secondary" onClick={() => handleClearData('deals', 'deals')}>
-            <Trash2 size={14} strokeWidth={1.5} /> Clear Deals
-          </button>
-          <button className="btn btn-secondary" onClick={() => handleClearData('prospects', 'prospects')}>
-            <Trash2 size={14} strokeWidth={1.5} /> Clear Prospects
-          </button>
-          <button className="btn btn-secondary" onClick={() => handleClearData('master_list', 'master list')}>
-            <Trash2 size={14} strokeWidth={1.5} /> Clear Master List
-          </button>
-          <button className="btn btn-secondary" onClick={() => handleClearData('commissions', 'commissions')}>
-            <Trash2 size={14} strokeWidth={1.5} /> Clear Commissions
-          </button>
-          <button className="btn btn-danger" onClick={() => {
-            if (confirm('Clear ALL DealFlow data? This cannot be undone.')) {
-              Object.keys(localStorage).filter(k => k.startsWith('dealflow_')).forEach(k => localStorage.removeItem(k));
-              window.location.reload();
-            }
-          }}>
-            <Trash2 size={14} strokeWidth={1.5} /> Clear All Data
-          </button>
+        <div className="card settings-section">
+          <h3><Download size={18} /> Data Management</h3>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={handleExport}>
+              <Download size={18} />
+              Export All Data
+            </button>
+            <button className="btn btn-secondary" onClick={() => importRef.current?.click()}>
+              <Upload size={18} />
+              Import Data
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={handleImport}
+            />
+          </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
+            Export creates a JSON backup of all your data. Import replaces existing data (except API settings).
+          </p>
         </div>
-      </div>
-
-      {/* Security Notice */}
-      <div className="card settings-section muted">
-        <div className="settings-section-header">
-          <Shield size={18} strokeWidth={1.5} />
-          <h3>Security</h3>
-        </div>
-        <p className="settings-description">
-          API keys are stored locally in your browser and never sent to any server other than the respective API providers.
-          DealFlow runs entirely client-side with no backend.
-        </p>
       </div>
     </div>
   );

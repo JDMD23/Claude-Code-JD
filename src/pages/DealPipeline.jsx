@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText, Check, CheckCircle } from 'lucide-react';
-import { DndContext, closestCenter, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
+import { Plus, X, GripVertical, Calendar, Building2, User, Mail, Phone, DollarSign, FileText } from 'lucide-react';
+import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, useDroppable, rectIntersection } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getDeals, saveDeal, updateDealStage, deleteDeal, DEAL_STAGES, createCommissionFromDeal } from '../store/dataStore';
-import { useNavigate } from 'react-router-dom';
 import './Pages.css';
 import './DealPipeline.css';
 
@@ -18,23 +17,19 @@ function getDaysInStage(deal) {
   return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Get color based on days in stage (or stage type)
-function getStageColor(days, stage) {
-  // Special stages always use gray
-  if (stage === 'on_hold' || stage === 'lost') return 'gray';
+// Get color based on days in stage
+function getStageColor(days) {
   if (days < 14) return 'green';
   if (days <= 30) return 'yellow';
   return 'red';
 }
 
-// Sortable Deal Card Component with inline editing
-function DealCard({ deal, onClick, onInlineSave }) {
+// Sortable Deal Card Component
+function DealCard({ deal, onClick }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
+    data: { type: 'card', stage: deal.stage },
   });
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(deal.clientName);
-  const [editNickname, setEditNickname] = useState(deal.dealNickname || '');
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -43,69 +38,24 @@ function DealCard({ deal, onClick, onInlineSave }) {
   };
 
   const daysInStage = getDaysInStage(deal);
-  const stageColor = getStageColor(daysInStage, deal.stage);
-
-  const handleInlineSave = (e) => {
-    e.stopPropagation();
-    if (!editName.trim()) return;
-    onInlineSave({ ...deal, clientName: editName.trim(), dealNickname: editNickname.trim() });
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleInlineSave(e);
-    if (e.key === 'Escape') {
-      setEditName(deal.clientName);
-      setEditNickname(deal.dealNickname || '');
-      setIsEditing(false);
-    }
-  };
+  const stageColor = getStageColor(daysInStage);
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`deal-card ${isEditing ? 'editing' : ''}`}
-      onClick={() => !isEditing && onClick(deal)}
-      onDoubleClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+      className="deal-card"
+      onClick={() => onClick(deal)}
     >
       <div className="deal-card-header">
         <div className="drag-handle" {...attributes} {...listeners}>
           <GripVertical size={16} />
         </div>
-        {isEditing ? (
-          <button className="inline-save-btn" onClick={handleInlineSave} title="Save">
-            <Check size={14} strokeWidth={2} />
-          </button>
-        ) : (
-          <div className={`stage-indicator ${stageColor}`} title={`${daysInStage} days in stage`} />
-        )}
+        <div className={`stage-indicator ${stageColor}`} title={`${daysInStage} days in stage`} />
       </div>
 
-      {isEditing ? (
-        <div className="inline-edit-fields" onClick={(e) => e.stopPropagation()}>
-          <input
-            className="inline-edit-input"
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Client name"
-            autoFocus
-          />
-          <input
-            className="inline-edit-input small"
-            value={editNickname}
-            onChange={(e) => setEditNickname(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Nickname (optional)"
-          />
-        </div>
-      ) : (
-        <>
-          <h4 className="deal-client">{deal.clientName}</h4>
-          {deal.dealNickname && <p className="deal-nickname">{deal.dealNickname}</p>}
-        </>
-      )}
+      <h4 className="deal-client">{deal.clientName}</h4>
+      {deal.dealNickname && <p className="deal-nickname">{deal.dealNickname}</p>}
 
       <div className="deal-meta">
         {deal.squareFootage && (
@@ -131,31 +81,42 @@ function DealCard({ deal, onClick, onInlineSave }) {
   );
 }
 
-// Droppable Column Component
-function KanbanColumn({ stage, deals, onCardClick, onInlineSave }) {
+// Droppable Column wrapper
+function DroppableColumn({ id, children }) {
+  const { isOver, setNodeRef } = useDroppable({ id, data: { type: 'column' } });
+
+  return (
+    <div ref={setNodeRef} className={`kanban-column ${isOver ? 'column-drag-over' : ''}`}>
+      {children}
+    </div>
+  );
+}
+
+// Kanban Column Component
+function KanbanColumn({ stage, deals, onCardClick }) {
   const stageDeals = deals.filter(d => d.stage === stage.id);
 
   return (
-    <div className="kanban-column" data-stage={stage.id}>
+    <DroppableColumn id={stage.id}>
       <div className="kanban-header">
         <h4>{stage.name}</h4>
         <span className="deal-count">{stageDeals.length}</span>
       </div>
 
       <SortableContext items={stageDeals.map(d => d.id)} strategy={verticalListSortingStrategy}>
-        <div className="kanban-cards" data-stage={stage.id}>
+        <div className="kanban-cards">
           {stageDeals.length === 0 ? (
             <div className="empty-column">
               <p>No deals</p>
             </div>
           ) : (
             stageDeals.map(deal => (
-              <DealCard key={deal.id} deal={deal} onClick={onCardClick} onInlineSave={onInlineSave} />
+              <DealCard key={deal.id} deal={deal} onClick={onCardClick} />
             ))
           )}
         </div>
       </SortableContext>
-    </div>
+    </DroppableColumn>
   );
 }
 
@@ -344,8 +305,6 @@ function DealPipeline() {
   const [showModal, setShowModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
   const [activeId, setActiveId] = useState(null);
-  const [commissionToast, setCommissionToast] = useState(null);
-  const navigate = useNavigate();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -358,21 +317,6 @@ function DealPipeline() {
   useEffect(() => {
     setDeals(getDeals());
   }, []);
-
-  // Auto-create commission when deal moves to "closed"
-  const handleDealClosed = (dealId, clientName) => {
-    try {
-      const result = createCommissionFromDeal(dealId);
-      if (!result.alreadyExists) {
-        setCommissionToast(clientName);
-        setTimeout(() => {
-          setCommissionToast(null);
-        }, 3000);
-      }
-    } catch (err) {
-      console.error('Error creating commission:', err);
-    }
-  };
 
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
@@ -387,29 +331,18 @@ function DealPipeline() {
     const activeId = active.id;
     const overId = over.id;
 
-    // Find which column the card was dropped on
-    const overElement = document.querySelector(`[data-stage]`);
+    // Determine target stage
     let newStage = null;
 
-    // Check if dropped on a column
-    const columns = document.querySelectorAll('[data-stage]');
-    columns.forEach(col => {
-      const rect = col.getBoundingClientRect();
-      const mouseEvent = event.activatorEvent;
-      if (mouseEvent) {
-        // Check last known position from the drag event
-      }
-    });
-
-    // Find the stage of the item we're dropping over, or the column itself
-    const overDeal = deals.find(d => d.id === overId);
-    if (overDeal) {
-      newStage = overDeal.stage;
+    // Check if dropped directly on a column (droppable)
+    const stageMatch = DEAL_STAGES.find(s => s.id === overId);
+    if (stageMatch) {
+      newStage = stageMatch.id;
     } else {
-      // Check if overId matches a stage
-      const stageMatch = DEAL_STAGES.find(s => s.id === overId);
-      if (stageMatch) {
-        newStage = stageMatch.id;
+      // Dropped on a card — find which stage that card belongs to
+      const overDeal = deals.find(d => d.id === overId);
+      if (overDeal) {
+        newStage = overDeal.stage;
       }
     }
 
@@ -419,23 +352,11 @@ function DealPipeline() {
         const updated = updateDealStage(activeId, newStage);
         setDeals(updated);
 
-        // Auto-create commission when deal moves to "closed"
+        // Auto-create commission when deal moves to closed
         if (newStage === 'closed') {
-          handleDealClosed(activeId, activeDeal.clientName);
+          createCommissionFromDeal(activeId);
         }
       }
-    }
-  };
-
-  const handleDragOver = (event) => {
-    const { over } = event;
-    if (!over) return;
-
-    // Find stage from the container
-    const container = over.id;
-    const stageEl = document.querySelector(`[data-stage="${container}"]`);
-    if (stageEl) {
-      // Highlight the column
     }
   };
 
@@ -451,11 +372,6 @@ function DealPipeline() {
     setDeals(updated);
     setShowModal(false);
     setEditingDeal(null);
-  };
-
-  const handleInlineSave = (dealData) => {
-    const updated = saveDeal(dealData);
-    setDeals(updated);
   };
 
   const handleCardClick = (deal) => {
@@ -485,10 +401,9 @@ function DealPipeline() {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={rectIntersection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        onDragOver={handleDragOver}
       >
         <div className="kanban-board">
           {DEAL_STAGES.map(stage => (
@@ -497,7 +412,6 @@ function DealPipeline() {
               stage={stage}
               deals={deals}
               onCardClick={handleCardClick}
-              onInlineSave={handleInlineSave}
             />
           ))}
         </div>
@@ -522,22 +436,6 @@ function DealPipeline() {
           onSave={handleSaveDeal}
           onDelete={handleDeleteDeal}
         />
-      )}
-
-      {commissionToast && (
-        <div className="toast toast-success">
-          <CheckCircle size={18} strokeWidth={2} />
-          <span>Commission created for "{commissionToast}"!</span>
-          <button
-            className="toast-action"
-            onClick={() => {
-              setCommissionToast(null);
-              navigate('/commissions');
-            }}
-          >
-            View →
-          </button>
-        </div>
       )}
     </div>
   );

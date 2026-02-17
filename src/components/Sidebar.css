@@ -1,14 +1,14 @@
 .sidebar {
   width: var(--sidebar-width);
   height: 100vh;
-  background-color: var(--bg-secondary);
+  background-color: #161619;
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   position: fixed;
   left: 0;
   top: 0;
-  transition: width var(--duration-normal) var(--ease-out);
+  transition: width 0.3s ease;
   z-index: 100;
 }
 
@@ -21,6 +21,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1rem;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .logo {
@@ -38,26 +39,25 @@
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: var(--tracking-tight);
   white-space: nowrap;
 }
 
 .collapse-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 0.25rem;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: all 0.2s ease;
 }
 
 .collapse-btn:hover {
   background-color: var(--bg-hover);
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .sidebar.collapsed .collapse-btn {
@@ -67,10 +67,10 @@
 
 .sidebar-nav {
   flex: 1;
-  padding: 0.5rem 0.75rem;
+  padding: 1rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: 0.25rem;
   overflow-y: auto;
 }
 
@@ -78,26 +78,22 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.625rem 1rem;
+  padding: 0.75rem 1rem;
   color: var(--text-secondary);
   text-decoration: none;
   border-radius: var(--radius-md);
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: all 0.2s ease;
   white-space: nowrap;
-  position: relative;
-  border-left: 2px solid transparent;
-  margin-left: 0;
 }
 
 .nav-item:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
 
 .nav-item.active {
-  background-color: var(--accent-subtle);
-  color: var(--text-primary);
-  border-left-color: var(--accent-primary);
+  background-color: rgba(92, 124, 250, 0.12);
+  color: var(--accent-primary);
 }
 
 .nav-item.active .nav-icon {
@@ -109,18 +105,13 @@
 }
 
 .nav-label {
-  font-size: var(--text-body);
+  font-size: 0.9rem;
   font-weight: 500;
 }
 
 .sidebar.collapsed .nav-item {
   justify-content: center;
-  padding: 0.625rem;
-  border-left-color: transparent;
-}
-
-.sidebar.collapsed .nav-item.active {
-  border-left-color: transparent;
+  padding: 0.75rem;
 }
 
 .sidebar.collapsed .nav-label {
@@ -133,7 +124,7 @@
 }
 
 .version-text {
-  font-size: var(--text-caption);
+  font-size: 0.75rem;
   color: var(--text-muted);
   text-align: center;
 }
