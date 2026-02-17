@@ -539,18 +539,34 @@ Return JSON:
 
 // ============ SCORING ============
 
-// Tier 1 investor list (subset of top VCs)
 const TIER1_INVESTORS = [
-  'andreessen horowitz', 'a16z', 'sequoia', 'benchmark', 'greylock',
-  'accel', 'lightspeed', 'general catalyst', 'index ventures', 'kleiner perkins',
-  'bessemer', 'founders fund', 'ggv', 'insight partners', 'tiger global',
-  'coatue', 'softbank', 'y combinator', 'yc', 'nea',
+  'y combinator', 'yc', 'sequoia', 'sequoia capital',
+  'andreessen horowitz', 'a16z', 'accel',
+  'first round', 'first round capital',
+  'benchmark', 'kleiner perkins',
+  'lightspeed', 'lightspeed venture partners',
+  'general catalyst', 'founders fund',
+  'thrive capital', 'insight partners',
 ];
 
 const TIER2_INVESTORS = [
-  'battery ventures', 'canaan', 'first round', 'union square ventures', 'usv',
-  'ribbit', 'craft ventures', 'ivp', 'meritech', 'maverick',
-  'thrive', 'spark capital', 'redpoint', 'felicis', 'emergence',
+  'greylock', 'greylock partners',
+  'index ventures', 'bessemer', 'bessemer venture partners',
+  'khosla', 'khosla ventures',
+  'nea', 'new enterprise associates',
+  'boxgroup', 'initialized', 'initialized capital',
+  'ribbit', 'ribbit capital',
+  'pear vc', 'floodgate', 'sv angel', 'pioneer fund',
+];
+
+const TIER3_INVESTORS = [
+  'founder collective', 'cowboy ventures',
+  'forerunner', 'forerunner ventures',
+  'lux capital', '8vc',
+  'cyberstarts', 'yl ventures',
+  'soma capital', 'homebrew',
+  'antler', 'qed', 'qed investors',
+  'bonfire', 'bonfire ventures',
 ];
 
 function calculateInvestorScore(investorString) {
@@ -559,10 +575,11 @@ function calculateInvestorScore(investorString) {
 
   const hasTier1 = TIER1_INVESTORS.some(inv => lower.includes(inv));
   const hasTier2 = TIER2_INVESTORS.some(inv => lower.includes(inv));
+  const hasTier3 = TIER3_INVESTORS.some(inv => lower.includes(inv));
 
   if (hasTier1) return 3;
   if (hasTier2) return 2;
-  if (investorString.trim().length > 0) return 1;
+  if (hasTier3) return 1;
   return 0;
 }
 
@@ -582,10 +599,11 @@ function parseFundingAmount(amountStr) {
 
 function calculateFundingScore(fundingStr) {
   const amount = parseFundingAmount(fundingStr);
-  if (amount >= 50_000_000) return 3; // $50M+ = large, likely needs space
-  if (amount >= 10_000_000) return 2; // $10M-$50M = growing
-  if (amount > 0) return 1;           // Under $10M = early stage
-  return 0;
+  if (amount >= 20_000_000) return 4; // $20M+ mega-seed / exceptional conviction
+  if (amount >= 10_000_000) return 3; // $10M-$19.9M large seed, strong institutional
+  if (amount >= 5_000_000) return 2;  // $5M-$9.9M solid seed, at or above median
+  if (amount >= 3_000_000) return 1;  // $3M-$4.9M standard seed, enough runway
+  return 0;                           // < $3M small seed / pre-seed
 }
 
 async function generateOutreachEmail(perplexityKey, companyName, dossier, csvData = {}) {
