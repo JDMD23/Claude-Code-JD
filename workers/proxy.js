@@ -323,55 +323,86 @@ async function scrapeWithFirecrawl(apiKey, url) {
   }
 }
 
-async function findAndScrapeCareersPage(firecrawlKey, companyName, domain) {
+async function findAndScrapeCareersPage(firecrawlKey, companyName, domain, perplexityKey) {
   if (!firecrawlKey) return null;
 
-  // Phase 1: Try direct paths on the company domain
-  const directPaths = ['/careers', '/jobs', '/join-us', '/open-positions', '/work-with-us'];
-  for (const path of directPaths) {
-    const content = await scrapeWithFirecrawl(firecrawlKey, `https://${domain}${path}`);
-    if (content && content.length > 300) {
-      return { url: `https://${domain}${path}`, content, source: 'company-site' };
+  // STEP 1: Ask Perplexity where the careers page actually is.
+  // Pass the domain (ground truth from CSV) to anchor the search.
+  // This replaces blind guessing with a targeted lookup.
+  if (perplexityKey) {
+    try {
+      const prompt = `I need the exact URL of the careers/jobs page for the company at ${domain} (${companyName}).
+
+Look for:
+1. Their own website careers page (e.g., ${domain}/careers or ${domain}/jobs)
+2. Their ATS platform page (e.g., boards.greenhouse.io/companyname, jobs.lever.co/companyname, jobs.ashbyhq.com/companyname)
+
+Return ONLY valid JSON. Do not guess or make up URLs. Only return URLs you can verify actually exist:
+{
+  "careersUrl": "<exact URL or null if not found>",
+  "source": "<company-site or greenhouse or lever or ashby or workable or other>",
+  "confidence": "<high or medium or low>"
+}
+
+If you cannot find a careers page, return: {"careersUrl": null, "source": null, "confidence": "low"}`;
+
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${perplexityKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.careersUrl && parsed.careersUrl !== 'null') {
+            // VALIDATE: Actually scrape the URL Perplexity suggested.
+            // If it returns <300 chars, the URL was wrong — discard it.
+            const validatedContent = await scrapeWithFirecrawl(firecrawlKey, parsed.careersUrl);
+            if (validatedContent && validatedContent.length > 300) {
+              return {
+                url: parsed.careersUrl,
+                content: validatedContent,
+                source: parsed.source || 'perplexity-verified',
+              };
+            }
+            // URL was bad — fall through to ATS fallback
+          }
+        }
+      }
+    } catch {
+      // Perplexity failed — fall through to ATS fallback
     }
   }
 
-  // Phase 2: Try major ATS platforms where VC-backed startups list jobs
-  // Use the domain slug (e.g., "keye" from "keye.com") as the identifier
-  const slug = domain.split('.')[0].toLowerCase();
-  // Also try company name slug (e.g., "keye" from "Keye")
-  const nameSlug = companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // STEP 2: Try the company's own /careers page (just one attempt, most common path)
+  const directContent = await scrapeWithFirecrawl(firecrawlKey, `https://${domain}/careers`);
+  if (directContent && directContent.length > 300) {
+    return { url: `https://${domain}/careers`, content: directContent, source: 'company-site' };
+  }
 
-  const atsCandidates = [
-    // Greenhouse (most common for VC-backed startups)
-    `https://boards.greenhouse.io/${slug}`,
-    `https://boards.greenhouse.io/${nameSlug}`,
-    // Lever
-    `https://jobs.lever.co/${slug}`,
-    `https://jobs.lever.co/${nameSlug}`,
-    // Ashby (growing fast in startup space)
-    `https://jobs.ashbyhq.com/${slug}`,
-    `https://jobs.ashbyhq.com/${nameSlug}`,
-    // Workable
-    `https://apply.workable.com/${slug}`,
-    // Rippling
-    `https://www.rippling.com/careers/${slug}`,
-    // BambooHR
-    `https://${slug}.bamboohr.com/careers`,
+  // STEP 3: Deterministic ATS fallback — only the top 3 platforms for VC-backed startups.
+  // No AI involved. These URLs are constructed from the domain slug.
+  // Either the page exists or it doesn't.
+  const slug = domain.split('.')[0].toLowerCase();
+
+  const atsFallbacks = [
+    { url: `https://boards.greenhouse.io/${slug}`, source: 'greenhouse' },
+    { url: `https://jobs.ashbyhq.com/${slug}`, source: 'ashby' },
+    { url: `https://jobs.lever.co/${slug}`, source: 'lever' },
   ];
 
-  // Deduplicate candidates (slug and nameSlug might be the same)
-  const seen = new Set();
-  const uniqueCandidates = atsCandidates.filter(url => {
-    if (seen.has(url)) return false;
-    seen.add(url);
-    return true;
-  });
-
-  for (const atsUrl of uniqueCandidates) {
-    const content = await scrapeWithFirecrawl(firecrawlKey, atsUrl);
-    // ATS pages with real listings are usually substantial
+  for (const ats of atsFallbacks) {
+    const content = await scrapeWithFirecrawl(firecrawlKey, ats.url);
     if (content && content.length > 300) {
-      return { url: atsUrl, content, source: 'ats-platform' };
+      return { url: ats.url, content, source: ats.source };
     }
   }
 
@@ -993,7 +1024,7 @@ async function handleAgent(request, env) {
       await progress(5, 'Analyzing hiring activity...');
 
       // Firecrawl finds and scrapes the ONE authoritative careers source
-      const careersPage = await findAndScrapeCareersPage(keys.firecrawl, companyName, domain);
+      const careersPage = await findAndScrapeCareersPage(keys.firecrawl, companyName, domain, keys.perplexity);
 
       // Perplexity analyzes the scraped content (or searches as fallback)
       const hiringData = await analyzeHiringFromContent(keys.perplexity, companyName, domain, careersPage);
